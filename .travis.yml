@@ -7,7 +7,10 @@ addons:
     token: c63141d084148304a2b7ab9994cdb99123194f26
 
 script:
-- mvn test -DfailIfNoTests=false -Dmaven.test.failure.ignore=true -Dtest=BookKeeperAdminTest sonar:sonar -Dsonar.projectKey=Jhaloyn_bookkeeper
+
+- mvn test sonar:sonar -Dsonar.projectKey=Jhaloyn_bookkeeper
+
+#- mvn test -DfailIfNoTests=false -Dmaven.test.failure.ignore=true -Dtest=BookKeeperAdminTest sonar:sonar -Dsonar.projectKey=Jhaloyn_bookkeeper
 
 
 

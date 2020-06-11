@@ -20,86 +20,88 @@ package org.apache.bookkeeper.proto.checksum;
 
 import static com.google.common.base.Charsets.UTF_8;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
-
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 
 /**
  * A {@code SHA-1} based digest manager.
  *
- * <p>NOTE: This class is tended to be used by this project only. External users should not rely on it directly.
+ * <p>
+ * NOTE: This class is tended to be used by this project only. External users
+ * should not rely on it directly.
  */
 public class MacDigestManager extends DigestManager {
-    private static final Logger LOG = LoggerFactory.getLogger(MacDigestManager.class);
+	private static final Logger LOG = LoggerFactory.getLogger(MacDigestManager.class);
 
-    public static final String DIGEST_ALGORITHM = "SHA-1";
-    public static final String KEY_ALGORITHM = "HmacSHA1";
+	public static final String DIGEST_ALGORITHM = "SHA-1";
+	public static final String KEY_ALGORITHM = "HmacSHA1";
 
-    public static final int MAC_CODE_LENGTH = 20;
+	public static final int MAC_CODE_LENGTH = 20;
 
-    final byte[] passwd;
+	final byte[] passwd;
 
-    static final byte[] EMPTY_LEDGER_KEY;
-    static {
-        try {
-            EMPTY_LEDGER_KEY = MacDigestManager.genDigest("ledger", new byte[0]);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
-    }
+	static final byte[] EMPTY_LEDGER_KEY;
+	static {
+		try {
+			EMPTY_LEDGER_KEY = MacDigestManager.genDigest("ledger", new byte[0]);
+		} catch (NoSuchAlgorithmException e) {
+			throw new RuntimeException(e);
+		}
+	}
 
-    private final ThreadLocal<Mac> mac = new ThreadLocal<Mac>() {
-        @Override
-        protected Mac initialValue() {
-            try {
-                byte[] macKey = genDigest("mac", passwd);
-                SecretKeySpec keySpec = new SecretKeySpec(macKey, KEY_ALGORITHM);
-                Mac mac = Mac.getInstance(KEY_ALGORITHM);
-                mac.init(keySpec);
-                return mac;
-            } catch (GeneralSecurityException gse) {
-                LOG.error("Couldn't not get mac instance", gse);
-                return null;
-            }
-        }
-    };
+	private final ThreadLocal<Mac> mac = new ThreadLocal<Mac>() {
+		@Override
+		protected Mac initialValue() {
+			try {
+				byte[] macKey = genDigest("mac", passwd);
+				SecretKeySpec keySpec = new SecretKeySpec(macKey, KEY_ALGORITHM);
+				Mac mac = Mac.getInstance(KEY_ALGORITHM);
+				mac.init(keySpec);
+				return mac;
+			} catch (GeneralSecurityException gse) {
+				LOG.error("Couldn't not get mac instance", gse);
+				return null;
+			}
+		}
+	};
 
-    public MacDigestManager(long ledgerId, byte[] passwd, boolean useV2Protocol, ByteBufAllocator allocator)
-            throws GeneralSecurityException {
-        super(ledgerId, useV2Protocol, allocator);
-        this.passwd = Arrays.copyOf(passwd, passwd.length);
-    }
+	public MacDigestManager(long ledgerId, byte[] passwd, boolean useV2Protocol, ByteBufAllocator allocator)
+			throws GeneralSecurityException {
+		super(ledgerId, useV2Protocol, allocator);
+		this.passwd = Arrays.copyOf(passwd, passwd.length);
+	}
 
-    public static byte[] genDigest(String pad, byte[] passwd) throws NoSuchAlgorithmException {
-        MessageDigest digest = MessageDigest.getInstance(DIGEST_ALGORITHM);
-        digest.update(pad.getBytes(UTF_8));
-        digest.update(passwd);
-        return digest.digest();
-    }
+	public static byte[] genDigest(String pad, byte[] passwd) throws NoSuchAlgorithmException {
+		MessageDigest digest = MessageDigest.getInstance(DIGEST_ALGORITHM);
+		digest.update(pad.getBytes(UTF_8));
+		digest.update(passwd);
+		return digest.digest();
+	}
 
-    @Override
-    int getMacCodeLength() {
-        return MAC_CODE_LENGTH;
-    }
+	@Override
+	int getMacCodeLength() {
+		return MAC_CODE_LENGTH;
+	}
 
+	@Override
+	void populateValueAndReset(ByteBuf buffer) {
+		buffer.writeBytes(mac.get().doFinal());
+	}
 
-    @Override
-    void populateValueAndReset(ByteBuf buffer) {
-        buffer.writeBytes(mac.get().doFinal());
-    }
-
-    @Override
-    void update(ByteBuf data) {
-        mac.get().update(data.nioBuffer());
-    }
-
+	@Override
+	void update(ByteBuf data) {
+		mac.get().update(data.nioBuffer());
+	}
 
 }
