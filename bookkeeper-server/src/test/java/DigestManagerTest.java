@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.Random;
 
 import javax.management.InvalidAttributeValueException;
 
@@ -79,8 +78,8 @@ public class DigestManagerTest {
 //						ByteBufAllocator.DEFAULT, 0L, createByteBufData(1).get(1), 0L },
 
 				// Test che non dovrebbe passare xke Lac<0
-				{ 0, new byte[] { (byte) 1 }, false, -1L, DigestType.CRC32, createByteBufData(0).get(0), 0, 0,
-						ByteBufAllocator.DEFAULT, -1L, createByteBufData(0).get(1), -1L },
+				{ 0, new byte[] { (byte) 1 }, false, -1L, DigestType.CRC32, createByteBufData(1).get(0), 0, 0,
+						ByteBufAllocator.DEFAULT, -1L, createByteBufData(1).get(1), -1L },
 //				// Test che non dovrebbe passare xke length<0
 				{ 0, new byte[6], false, 0L, DigestType.CRC32C, createByteBufData(0).get(0), 1, -1,
 						ByteBufAllocator.DEFAULT, 0L, createByteBufData(0).get(1), 0L },
@@ -94,6 +93,8 @@ public class DigestManagerTest {
 
 		return Arrays.asList(data);
 	}
+
+	// TODO fare un metodo per creare buffer uguali
 
 	@Test
 	public void verifyDigestAndReturnLacTest()
@@ -168,16 +169,17 @@ public class DigestManagerTest {
 			listByteBuff.add(Unpooled.buffer(0));
 			listByteBuff.add(Unpooled.buffer(0));
 			return listByteBuff;
-		}
+		} else {
 
-		byte[] data = new byte[length];
-		Random random = new Random();
-		// Si riempie il buffer con dati random
-		random.nextBytes(data);
-		ByteBuf bb = Unpooled.buffer(length);
-		bb.writeBytes(data);
-		listByteBuff.add(bb);
-		listByteBuff.add(bb);
+			byte[] data = "Ciao".getBytes();
+			// Random random = new Random();
+			// Si riempie il buffer con dati random
+			// random.nextBytes(data);
+			ByteBuf bb = Unpooled.buffer("Ciao".length());
+			bb.writeBytes(data);
+			listByteBuff.add(bb);
+			listByteBuff.add(bb);
+		}
 		return listByteBuff;
 	}
 

@@ -238,9 +238,15 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
 //		if (length > writeBuffer.capacity() - pos) {
 //			throw new IOException();
 //		}
+		int count = 0;
+		System.out.println("writeBufferStartPosition: " + writeBufferStartPosition);
 		while (length > 0) {
+			count++;
+			// System.out.println("length: " + length);
 			// check if it is in the write buffer
 			if (writeBuffer != null && writeBufferStartPosition.get() <= pos) {
+				System.out.println("count: " + count);
+				System.out.println("length: " + length);
 				int positionInBuffer = (int) (pos - writeBufferStartPosition.get());
 				int bytesToCopy = Math.min(writeBuffer.writerIndex() - positionInBuffer, dest.writableBytes());
 
@@ -251,6 +257,8 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
 				dest.writeBytes(writeBuffer, positionInBuffer, bytesToCopy);
 				pos += bytesToCopy;
 				length -= bytesToCopy;
+
+				System.out.println("bytes to copy: " + bytesToCopy);
 			} else if (writeBuffer == null && writeBufferStartPosition.get() <= pos) {
 				// here we reach the end
 				break;
