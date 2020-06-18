@@ -238,7 +238,10 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
 
 		while (length > 0) {
 			// check if it is in the write buffer
-			// se ci sono dati nel writeBuffer li si legge
+			// si vogliono leggere i dati nel writeBuffer perchè si vuole iniziare a leggere
+			// da una posizione successiva a quella dell'ultimo dato eventualmente scritto
+			// nel file. Se ci sono dati presenti oltre quella posizione, si trovano
+			// sicuramente nel writeBuffer
 			if (writeBuffer != null && writeBufferStartPosition.get() <= pos) {
 
 				int positionInBuffer = (int) (pos - writeBufferStartPosition.get());
@@ -266,8 +269,9 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
 				length -= bytesToCopy;
 				// let's read it
 				// se non ci sono dati nel writeBuffer oppure il writeBuffer contiene dei dati
-				// ma anche il file ha dei dati xke writeBufferStartPosition > pos, si legge i
-				// dati dal fileChannel e li si mette nel readBuffer che ha la stessa capacità
+				// ma anche il file ha dei dati e noi vogliamo leggerli dato che
+				// writeBufferStartPosition > pos. Si legge i dati dal fileChannel e li si mette
+				// nel readBuffer che ha la stessa capacità
 				// del writeBuffer, per come abbiamo istanziato il bufferedChannel. Quando sia
 				// il writeBuffer che il file contengono dati, si legge prima dal file e poi dal
 				// writeBuffer in modo da mantenere la sequenzialità dei dati così come sono
@@ -275,7 +279,6 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
 				// più recentemente letti da src rispetto a quelli flushati sul file
 			} else {
 				readBufferStartPosition = pos;
-
 				int readBytes = fileChannel.read(readBuffer.internalNioBuffer(0, readCapacity),
 						readBufferStartPosition);
 				if (readBytes <= 0) {

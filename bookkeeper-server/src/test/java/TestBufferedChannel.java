@@ -63,7 +63,7 @@ public class TestBufferedChannel {
 				// length < buffer_capacity-pos, length<dst, pos<buffer_capacity
 				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 0, 1, 0, 0 },
 				// length > buffer_capacity - pos, length>dst, pos=buffer_capacity
-				{ 0, createByteBufDataEmpty(0), createByteBufData(0), 0, 1, 1, 0, new IOException() },
+				{ 0, createByteBufDataEmpty(0), createByteBufData(0), 0, 1, 1, 0, new IOException("Read past EOF") },
 				// pos > buffer_capacity
 				{ 1, null, null, 2, 1, 0, new NullPointerException(), new NullPointerException() },
 
@@ -71,8 +71,20 @@ public class TestBufferedChannel {
 				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
 				{ 10, createByteBufDataEmpty(10), createByteBufData(5), 0, 5, 0, 5, 5 }, // linee 122,127, da 258
 
+				// -------------------------Mutation---------------------------------
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 0, 2, 5 }, // mutazione linea 116
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 1, 0, 5 }, // mutazioni linee 129,130
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 7, 0, 5 }, // mutazione linea 129
+				// mutazioni linee 247, 248
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 5, 5, 0, 2, new IOException("Read past EOF") },
+				// mutazione linea 290
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 3, 5, 0, 2, new IOException("Read past EOF") },
+				{ 5, createByteBufDataEmpty(10), createByteBufData(4), 1, 3, 0, 4, 3 }, // mutazione linea 287
+
 				// LOOP
 				// { 7, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 0, 3, 5 }
+				// LOOP test per mutante 266
+				// { 7, createByteBufDataEmpty(5), createByteBufData(10), 0, 10, 0, 3, 10 }
 		};
 
 		return Arrays.asList(data);
@@ -108,24 +120,14 @@ public class TestBufferedChannel {
 
 		buffChann.write(src);
 
-		if (expectedRead instanceof Exception) {
-			expectedException.expect(Exception.class);
+		if (expectedRead instanceof IOException) {
+			expectedException.expect(IOException.class);
 		}
 
 		buffChann.read(dst, pos, length);
 		int result = buffChann.read(dst, pos, length);
 		buffChann.close();
 		assertEquals(expectedRead, result);
-
-//		if (expectedRead instanceof Exception) {
-//			expectedException.expect(Exception.class);
-//			buffChann.read(dst, pos, length);
-//		} else {
-//			int result = buffChann.read(dst, pos, length);
-//			buffChann.close();
-//			assertEquals(expectedRead, result);
-//		}
-
 	}
 
 	private static FileChannel createFileChannel() throws IOException {

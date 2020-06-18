@@ -190,8 +190,8 @@
 			<param>org.apache.bookkeeper.proto.checksum.DigestManager</param>
 		</targetClasses>
 		<targetTests>
-			<param>BufferedChannelTest</param>
-			<param>DigestManagerTest</param>
+			<param>TestBufferedChannel</param>
+			<param>TestDigestManager</param>
 		</targetTests>
  	</configuration>
       </plugin>
