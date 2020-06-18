@@ -68,8 +68,8 @@ public class TestBufferedChannel {
 				{ 1, null, null, 2, 1, 0, new NullPointerException(), new NullPointerException() },
 
 				// ------------------------------Coverage---------------------------
-//				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
-//				{ 10, createByteBufDataEmpty(10), createByteBufData(5), 0, 5, 0, 5, 5 }, // linee 122,127, da 258
+				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
+				{ 10, createByteBufDataEmpty(10), createByteBufData(5), 0, 5, 0, 5, 5 }, // linee 122,127, da 258
 
 				// LOOP
 				// { 7, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 0, 3, 5 }
