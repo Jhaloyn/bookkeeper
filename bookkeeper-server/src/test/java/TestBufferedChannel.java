@@ -22,7 +22,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 
 @RunWith(Parameterized.class)
-public class BufferedChannelTest {
+public class TestBufferedChannel {
 
 	@Rule
 	public ExpectedException expectedException;
@@ -36,7 +36,7 @@ public class BufferedChannelTest {
 	private Object expectedRead;
 	private BufferedChannel buffChann;
 
-	public BufferedChannelTest(int bufferCapacity, ByteBuf dst, ByteBuf src, long pos, int length,
+	public TestBufferedChannel(int bufferCapacity, ByteBuf dst, ByteBuf src, long pos, int length,
 			long unpersistedBytesBound, Object expectedWrite, Object expectedRead) {
 
 		expectedException = ExpectedException.none();
@@ -62,17 +62,27 @@ public class BufferedChannelTest {
 
 				// length < buffer_capacity-pos, length<dst, pos<buffer_capacity
 				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 0, 1, 0, 0 },
-//				// length > buffer_capacity - pos, length>dst, pos=buffer_capacity
+				// length > buffer_capacity - pos, length>dst, pos=buffer_capacity
 				{ 0, createByteBufDataEmpty(0), createByteBufData(0), 0, 1, 1, 0, new IOException() },
-//				// pos > buffer_capacity
-				{ 1, null, null, 2, 1, 0, new NullPointerException(), new NullPointerException() }, };
+				// pos > buffer_capacity
+				{ 1, null, null, 2, 1, 0, new NullPointerException(), new NullPointerException() },
+
+				// ------------------------------Coverage---------------------------
+//				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
+//				{ 10, createByteBufDataEmpty(10), createByteBufData(5), 0, 5, 0, 5, 5 }, // linee 122,127, da 258
+
+				// LOOP
+				// { 7, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 0, 3, 5 }
+		};
 
 		return Arrays.asList(data);
+
 	}
 
 	@Before
 	public void setUpBufferedChannel() throws IOException {
-		buffChann = new BufferedChannel(UnpooledByteBufAllocator.DEFAULT, createFileChannel(), bufferCapacity);
+		buffChann = new BufferedChannel(UnpooledByteBufAllocator.DEFAULT, createFileChannel(), bufferCapacity,
+				unpersistedBytesBound);
 	}
 
 	@Test
@@ -87,7 +97,7 @@ public class BufferedChannelTest {
 	}
 
 	// In questo test viene prima invocata la write in modo da leggere nella read()
-	// ciò che viene scritto nel WriteBuffer e ne FileChannel a partire dalla
+	// ciò che viene scritto nel WriteBuffer e nel FileChannel a partire dalla
 	// write()
 	@Test
 	public void readTest() throws IOException {
@@ -100,12 +110,21 @@ public class BufferedChannelTest {
 
 		if (expectedRead instanceof Exception) {
 			expectedException.expect(Exception.class);
-			buffChann.read(dst, pos, length);
-		} else {
-			int result = buffChann.read(dst, pos, length);
-			buffChann.close();
-			assertEquals(expectedRead, result);
 		}
+
+		buffChann.read(dst, pos, length);
+		int result = buffChann.read(dst, pos, length);
+		buffChann.close();
+		assertEquals(expectedRead, result);
+
+//		if (expectedRead instanceof Exception) {
+//			expectedException.expect(Exception.class);
+//			buffChann.read(dst, pos, length);
+//		} else {
+//			int result = buffChann.read(dst, pos, length);
+//			buffChann.close();
+//			assertEquals(expectedRead, result);
+//		}
 
 	}
 

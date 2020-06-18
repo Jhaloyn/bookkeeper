@@ -26,7 +26,7 @@ import io.netty.buffer.Unpooled;
 //DigestManager class takes an entry, attaches a digest to it and packages it with relevant data so that it can be shipped to the bookie. On the return side, it also gets a packet, checks that the digest matches, and extracts the original entry for the packet
 
 @RunWith(Parameterized.class)
-public class DigestManagerTest {
+public class TestDigestManager {
 
 	private long ledgerId;
 	private byte[] passwd;
@@ -45,7 +45,7 @@ public class DigestManagerTest {
 //	@Rule
 //	public ExpectedException expectedExceptionData;
 
-	public DigestManagerTest(long ledgerId, byte[] passwd, boolean useV2Protocol, long lac, DigestType digestType,
+	public TestDigestManager(long ledgerId, byte[] passwd, boolean useV2Protocol, long lac, DigestType digestType,
 			ByteBuf data, long entryId, long length, ByteBufAllocator allocator, Object expectedLac,
 			Object expectedData, Object expectedLastConfirmed) {
 

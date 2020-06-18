@@ -235,18 +235,12 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
 	@Override
 	public synchronized int read(ByteBuf dest, long pos, int length) throws IOException {
 		long prevPos = pos;
-//		if (length > writeBuffer.capacity() - pos) {
-//			throw new IOException();
-//		}
-		int count = 0;
-		System.out.println("writeBufferStartPosition: " + writeBufferStartPosition);
+
 		while (length > 0) {
-			count++;
-			// System.out.println("length: " + length);
 			// check if it is in the write buffer
+			// se ci sono dati nel writeBuffer li si legge
 			if (writeBuffer != null && writeBufferStartPosition.get() <= pos) {
-				System.out.println("count: " + count);
-				System.out.println("length: " + length);
+
 				int positionInBuffer = (int) (pos - writeBufferStartPosition.get());
 				int bytesToCopy = Math.min(writeBuffer.writerIndex() - positionInBuffer, dest.writableBytes());
 
@@ -258,11 +252,12 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
 				pos += bytesToCopy;
 				length -= bytesToCopy;
 
-				System.out.println("bytes to copy: " + bytesToCopy);
 			} else if (writeBuffer == null && writeBufferStartPosition.get() <= pos) {
 				// here we reach the end
 				break;
 				// first check if there is anything we can grab from the readBuffer
+				// Se nel readBuffer ci sono dati letti dal fileChannel li si scrive nel buffer
+				// di destinazione dst
 			} else if (readBufferStartPosition <= pos && pos < readBufferStartPosition + readBuffer.writerIndex()) {
 				int positionInBuffer = (int) (pos - readBufferStartPosition);
 				int bytesToCopy = Math.min(readBuffer.writerIndex() - positionInBuffer, dest.writableBytes());
@@ -270,6 +265,14 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
 				pos += bytesToCopy;
 				length -= bytesToCopy;
 				// let's read it
+				// se non ci sono dati nel writeBuffer oppure il writeBuffer contiene dei dati
+				// ma anche il file ha dei dati xke writeBufferStartPosition > pos, si legge i
+				// dati dal fileChannel e li si mette nel readBuffer che ha la stessa capacità
+				// del writeBuffer, per come abbiamo istanziato il bufferedChannel. Quando sia
+				// il writeBuffer che il file contengono dati, si legge prima dal file e poi dal
+				// writeBuffer in modo da mantenere la sequenzialità dei dati così come sono
+				// stati letti da src, in quanto i dati rimanenti nel writeBuffer sono quelli
+				// più recentemente letti da src rispetto a quelli flushati sul file
 			} else {
 				readBufferStartPosition = pos;
 
