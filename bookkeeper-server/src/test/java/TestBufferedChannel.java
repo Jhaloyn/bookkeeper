@@ -67,11 +67,11 @@ public class TestBufferedChannel {
 				// pos > buffer_capacity
 				{ 1, null, null, 2, 1, 0, new NullPointerException(), new NullPointerException() },
 
-				// ------------------------------Coverage---------------------------
+				// ------------------------------Coverage strutturale---------------------------
 				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
 				{ 10, createByteBufDataEmpty(10), createByteBufData(5), 0, 5, 0, 5, 5 }, // linee 122,127, da 258
 
-				// -------------------------Mutation---------------------------------
+				// -------------------------Mutation coverage---------------------------------
 				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 0, 2, 5 }, // mutazione linea 116
 				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 1, 0, 5 }, // mutazioni linee 129,130
 				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 7, 0, 5 }, // mutazione linea 129

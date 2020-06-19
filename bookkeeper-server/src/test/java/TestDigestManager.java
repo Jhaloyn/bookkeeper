@@ -103,7 +103,7 @@ public class TestDigestManager {
 				{ 0L, false, 0, null, 0, 0, null, null, null, null, null, new NullPointerException(),
 						new NullPointerException(), new NullPointerException(), new NullPointerException() },
 
-				// ---------------------------Coverage----------------------
+				// ---------------------------Coverage strutturale----------------------
 				// linee 230 e 190
 				{ 0L, false, 0, DigestType.CRC32, 0, 0, ByteBufAllocator.DEFAULT, createByteBufData(1),
 						createByteBufComputeLacData(1L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0),
@@ -123,15 +123,11 @@ public class TestDigestManager {
 						createByteBufComputeLacData(0L, ByteBufAllocator.DEFAULT, DigestType.HMAC, false, 0),
 						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.HMAC, false, 0, 0, 0, 1),
 						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0, 0, 0, 1),
-						createByteBufData(1), new BKDigestMatchException(), new BKDigestMatchException(), 0L }
+						createByteBufData(1), new BKDigestMatchException(), new BKDigestMatchException(), 0L },
 
 		};
 
-		// long ledgerId, allocator, digestType,
-		// useV2Protocol, int lac, int length, int entryId, int capacity
-
 		return Arrays.asList(data);
-
 	}
 
 	@Test
@@ -166,7 +162,7 @@ public class TestDigestManager {
 		assertEquals(expectedLacVerify, result);
 	}
 
-	// Ritorna in output il buffer di dati passati in input al compute
+	// Ritorna in output il buffer di dati passati in input al computeDigest
 	@Test
 	public void verifyDigestAndReturnData()
 			throws BKDigestMatchException, GeneralSecurityException, InvalidAttributeValueException {
@@ -237,5 +233,4 @@ public class TestDigestManager {
 
 		return ByteBufList.coalesce(dataPackagedList);
 	}
-
 }
