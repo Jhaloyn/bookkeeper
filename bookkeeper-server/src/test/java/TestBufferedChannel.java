@@ -62,10 +62,10 @@ public class TestBufferedChannel {
 
 				// length < buffer_capacity-pos, length<dst, pos<buffer_capacity
 				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 0, 1, 0, 0 },
-				// length > buffer_capacity - pos, length>dst, pos=buffer_capacity
+				// length > buffer_capacity - pos, length > dst, pos=buffer_capacity
 				{ 0, createByteBufDataEmpty(0), createByteBufData(0), 0, 1, 1, 0, new IOException("Read past EOF") },
 				// pos > buffer_capacity
-				{ 1, null, null, 2, 1, 0, new NullPointerException(), new NullPointerException() },
+				{ 2, null, null, 2, 1, 0, new NullPointerException(), new NullPointerException() },
 
 				// ------------------------------Coverage strutturale---------------------------
 				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
