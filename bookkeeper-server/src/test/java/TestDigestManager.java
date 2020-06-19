@@ -103,12 +103,35 @@ public class TestDigestManager {
 				{ 0L, false, 0, null, 0, 0, null, null, null, null, null, new NullPointerException(),
 						new NullPointerException(), new NullPointerException(), new NullPointerException() },
 
+				// ---------------------------Coverage----------------------
+				// linee 230 e 190
+				{ 0L, false, 0, DigestType.CRC32, 0, 0, ByteBufAllocator.DEFAULT, createByteBufData(1),
+						createByteBufComputeLacData(1L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0),
+						createByteBufComputeData(1L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0, 0, 0, 1),
+						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0, 0, 0, 1),
+						createByteBufData(1), new BKDigestMatchException(), new BKDigestMatchException(), 0L },
+
+				// linea 196
+				{ 0L, false, 0, DigestType.CRC32, 0, 0, ByteBufAllocator.DEFAULT, createByteBufData(1),
+						createByteBufComputeLacData(0L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0),
+						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0, 0, 1, 1),
+						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0, 0, 0, 1),
+						createByteBufData(1), 0L, new BKDigestMatchException(), 0L },
+
+				// linee 220 e 179
+				{ 0L, false, 0, DigestType.CRC32, 0, 0, ByteBufAllocator.DEFAULT, createByteBufData(1),
+						createByteBufComputeLacData(0L, ByteBufAllocator.DEFAULT, DigestType.HMAC, false, 0),
+						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.HMAC, false, 0, 0, 0, 1),
+						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0, 0, 0, 1),
+						createByteBufData(1), new BKDigestMatchException(), new BKDigestMatchException(), 0L }
+
 		};
 
 		// long ledgerId, allocator, digestType,
 		// useV2Protocol, int lac, int length, int entryId, int capacity
 
 		return Arrays.asList(data);
+
 	}
 
 	@Test
@@ -129,7 +152,7 @@ public class TestDigestManager {
 	public void verifyDigestAndReturnLacTest()
 			throws BKDigestMatchException, GeneralSecurityException, InvalidAttributeValueException {
 
-		if (expectedDataVerify instanceof BKDigestMatchException) {
+		if (expectedLacVerify instanceof BKDigestMatchException) {
 			expectedException.expect(BKDigestMatchException.class);
 		}
 		if (expectedLacVerify instanceof NullPointerException) {
