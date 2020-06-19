@@ -1,10 +1,8 @@
 import static org.junit.Assert.assertEquals;
 
 import java.security.GeneralSecurityException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.List;
 
 import javax.management.InvalidAttributeValueException;
 
@@ -28,189 +26,173 @@ import io.netty.buffer.Unpooled;
 @RunWith(Parameterized.class)
 public class TestDigestManager {
 
+	@Rule
+	public ExpectedException expectedException;
 	private long ledgerId;
-	private byte[] passwd;
 	boolean useV2Protocol;
 	private long lac;
 	private DigestType digestType;
-	private ByteBuf data;
 	private long entryId;
 	private long length;
 	private ByteBufAllocator allocator;
-	private Object expectedLac;
-	private Object expectedData;
-	private Object expectedLastConfirmed;
-	@Rule
-	public ExpectedException expectedExceptionLac;
-//	@Rule
-//	public ExpectedException expectedExceptionData;
+	private ByteBuf data; // byteBuf per il ComputeDigest
+	private ByteBuf dataReceived; // byteBuf per il verifyData
+	private ByteBuf dataLastConfirmedReceived; // byteBuf per il verifyLastConfirmed
+	private Object expectedDataCompute;
+	private Object expectedLacVerify;
+	private Object expectedDataVerify;
+	private Object expectedLastConfirmedVerify;
 
-	public TestDigestManager(long ledgerId, byte[] passwd, boolean useV2Protocol, long lac, DigestType digestType,
-			ByteBuf data, long entryId, long length, ByteBufAllocator allocator, Object expectedLac,
-			Object expectedData, Object expectedLastConfirmed) {
+	public TestDigestManager(long ledgerId, boolean useV2Protocol, long lac, DigestType digestType, long entryId,
+			long length, ByteBufAllocator allocator, ByteBuf data, ByteBuf dataReceived,
+			ByteBuf dataLastConfirmedReceived, Object expectedDataCompute, Object expectedLacVerify,
+			Object expectedDataVerify, Object expectedLastConfirmedVerify) {
 
 		this.ledgerId = ledgerId;
-		this.passwd = passwd;
 		this.useV2Protocol = useV2Protocol;
 		this.lac = lac;
 		this.digestType = digestType;
-		this.data = data;
 		this.entryId = entryId;
 		this.length = length;
 		this.allocator = allocator;
-		this.expectedLac = expectedLac;
-		this.expectedData = expectedData;
-		this.expectedLastConfirmed = expectedLastConfirmed;
-		this.expectedExceptionLac = ExpectedException.none();
-		// this.expectedExceptionData = ExpectedException.none();
+		this.data = data;
+		this.dataReceived = dataReceived;
+		this.dataLastConfirmedReceived = dataLastConfirmedReceived;
+		this.expectedDataCompute = expectedDataCompute;
+		this.expectedLacVerify = expectedLacVerify;
+		this.expectedDataVerify = expectedDataVerify;
+		this.expectedLastConfirmedVerify = expectedLastConfirmedVerify;
+		this.expectedException = ExpectedException.none();
 	}
 
 	// Creazione casi di test parametrizzati
 	@Parameters
 	public static Collection<Object[]> data() throws Exception {
 		Object[][] data = new Object[][] {
-				// ledgerId, passwd, V2Protocol, lac, digestType, bufData, entryID, length,
-				// allocator, valore atteso Lac, valore atteso buffer, valore atteso last
-				// confirmed
 
-				// Test che non dovrebbe passare xke LedgerId <0 e entryId=lac
-//				{ -1, new byte[] { (byte) 1 }, true, 0L, DigestType.HMAC, createByteBufData(1).get(0), 0L, 1L,
-//						ByteBufAllocator.DEFAULT, 0L, createByteBufData(1).get(1), 0L },
+				// ledgerId, useV2Protocol, lac, digestType, entryId, length, allocator, data,
+				// dataReceived, dataLastConfirmedReceived, expectedDataCompute,
+				// expectedLacVerify, expectedDataVerify, expectedLastConfirmedVerify
 
-				// Test che non dovrebbe passare xke Lac<0
-				{ 0, new byte[] { (byte) 1 }, false, -1L, DigestType.CRC32, createByteBufData(1).get(0), 0, 0,
-						ByteBufAllocator.DEFAULT, -1L, createByteBufData(1).get(1), -1L },
-//				// Test che non dovrebbe passare xke length<0
-				{ 0, new byte[6], false, 0L, DigestType.CRC32C, createByteBufData(0).get(0), 1, -1,
-						ByteBufAllocator.DEFAULT, 0L, createByteBufData(0).get(1), 0L },
-//				// Test che non dovrebbe passare xke entryID<lac
-				{ 0, new byte[6], false, 0L, DigestType.DUMMY, createByteBufData(0).get(0), -1, 1,
-						ByteBufAllocator.DEFAULT, 0L, createByteBufData(0).get(1), 0L },
-				{ 0, null, false, 0L, null, null, 1, 1, null, new NullPointerException(), new NullPointerException(),
-						new NullPointerException() }
+				// ----------------Category Partition e Boundary Values---------------------
+				{ -1L, true, -1, DigestType.HMAC, -2, -1, ByteBufAllocator.DEFAULT, createByteBufData(0),
+						createByteBufComputeData(-1L, ByteBufAllocator.DEFAULT, DigestType.HMAC, true, -1, 0, -2, 0),
+						createByteBufComputeData(-1L, ByteBufAllocator.DEFAULT, DigestType.HMAC, true, -1, 0, -2, 0),
+						createByteBufData(0), -1L, createByteBufData(0), -1L },
+
+				{ 0L, false, 0, DigestType.CRC32, 0, 0, ByteBufAllocator.DEFAULT, createByteBufData(1),
+						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0, 0, 0, 1),
+						createByteBufComputeData(0L, ByteBufAllocator.DEFAULT, DigestType.CRC32, false, 0, 0, 0, 1),
+						createByteBufData(1), 0L, createByteBufData(1), 0L },
+
+				{ 1L, false, 1, DigestType.CRC32C, 2, 1, ByteBufAllocator.DEFAULT, createByteBufData(2),
+						createByteBufComputeData(1L, ByteBufAllocator.DEFAULT, DigestType.CRC32C, false, 1, 1, 2, 2),
+						createByteBufComputeData(1L, ByteBufAllocator.DEFAULT, DigestType.CRC32C, false, 1, 1, 2, 2),
+						createByteBufData(2), 1L, createByteBufData(2), 1L },
+
+				{ 0L, false, 0, DigestType.DUMMY, 0, 0, ByteBufAllocator.DEFAULT, createByteBufData(0),
+						createByteBufData(0), createByteBufData(0), createByteBufData(0), 0L,
+						new BKDigestMatchException(), new BKDigestMatchException() },
+
+				{ 0L, false, 0, null, 0, 0, null, null, null, null, new NullPointerException(),
+						new NullPointerException(), new NullPointerException(), new NullPointerException() },
 
 		};
+
+		// long ledgerId, allocator, digestType,
+		// useV2Protocol, int lac, int length, int entryId, int capacity
 
 		return Arrays.asList(data);
 	}
 
-	// TODO fare un metodo per creare buffer uguali
+	@Test
+	public void computeDigestAndPackageForSending() throws GeneralSecurityException {
+
+		if (expectedDataCompute instanceof NullPointerException) {
+			expectedException.expect(NullPointerException.class);
+		}
+
+		DigestManager digestManager = DigestManager.instantiate(ledgerId, new byte[6], digestType, allocator,
+				useV2Protocol);
+
+		ByteBufList result = digestManager.computeDigestAndPackageForSending(entryId, lac, length, data);
+		assertEquals(expectedDataCompute, result.getBuffer(1));
+	}
 
 	@Test
 	public void verifyDigestAndReturnLacTest()
 			throws BKDigestMatchException, GeneralSecurityException, InvalidAttributeValueException {
-//
-//		if (expectedLac instanceof BKDigestMatchException) {
-//			expectedExceptionLac.expect(BKDigestMatchException.class);
-//		} else if (expectedLac instanceof GeneralSecurityException) {
-//			expectedExceptionLac.expect(GeneralSecurityException.class);
-//		} else
-		if (expectedLac instanceof NullPointerException) {
-			expectedExceptionLac.expect(NullPointerException.class);
+
+		if (expectedLacVerify instanceof NullPointerException) {
+			expectedException.expect(NullPointerException.class);
 		}
 
-		DigestManager digestManager = DigestManager.instantiate(ledgerId, passwd, digestType, allocator, useV2Protocol);
+		DigestManager digestManager = DigestManager.instantiate(ledgerId, new byte[6], digestType, allocator,
+				useV2Protocol);
 
 		ByteBufList listBuf = digestManager.computeDigestAndPackageForSendingLac(lac);
 		long result = digestManager.verifyDigestAndReturnLac(listBuf.getBuffer(0));
-		assertEquals(expectedLac, result);
+		assertEquals(expectedLacVerify, result);
 	}
 
+	// Ritorna in output il buffer di dati passati in input al compute
 	@Test
 	public void verifyDigestAndReturnData()
 			throws BKDigestMatchException, GeneralSecurityException, InvalidAttributeValueException {
 
-		// TODO controllare se è pox lasciare una sola ExpectedException variable
-
-//		if (expectedData instanceof BKDigestMatchException) {
-//			expectedExceptionLac.expect(BKDigestMatchException.class);
-//		} else if (expectedData instanceof GeneralSecurityException) {
-//			expectedExceptionLac.expect(GeneralSecurityException.class);
-//		} else 
-		if (expectedData instanceof NullPointerException) {
-			expectedExceptionLac.expect(NullPointerException.class);
+		if (expectedDataVerify instanceof BKDigestMatchException) {
+			expectedException.expect(BKDigestMatchException.class);
+		}
+		if (expectedDataVerify instanceof NullPointerException) {
+			expectedException.expect(NullPointerException.class);
 		}
 
-		DigestManager digestManager = DigestManager.instantiate(ledgerId, passwd, digestType, allocator, useV2Protocol);
+		DigestManager digestManager = DigestManager.instantiate(ledgerId, new byte[6], digestType, allocator,
+				useV2Protocol);
 
-		ByteBufList listBuf = digestManager.computeDigestAndPackageForSending(entryId, lac, length, data);
-		ByteBuf result = digestManager.verifyDigestAndReturnData(entryId, ByteBufList.coalesce(listBuf));
-		// assertEquals(ByteBufList.coalesce(listBuf).readerIndex(16 + 20), result);
-
-		assertEquals(expectedData, result);
+		ByteBuf result = digestManager.verifyDigestAndReturnData(entryId, dataReceived);
+		assertEquals(expectedDataVerify, result);
 	}
 
 	@Test
 	public void verifyDigestAndReturnLastConfirmed()
 			throws BKDigestMatchException, GeneralSecurityException, InvalidAttributeValueException {
 
-//		if (expectedLastConfirmed instanceof BKDigestMatchException) {
-//			expectedExceptionLac.expect(BKDigestMatchException.class);
-//		} else if (expectedLastConfirmed instanceof GeneralSecurityException) {
-//			expectedExceptionLac.expect(GeneralSecurityException.class);
-//		} else 
-		if (expectedLastConfirmed instanceof NullPointerException) {
-			expectedExceptionLac.expect(NullPointerException.class);
+		if (expectedLastConfirmedVerify instanceof BKDigestMatchException) {
+			expectedException.expect(BKDigestMatchException.class);
+		}
+		if (expectedLastConfirmedVerify instanceof NullPointerException) {
+			expectedException.expect(NullPointerException.class);
 		}
 
-		DigestManager digestManager = DigestManager.instantiate(ledgerId, passwd, digestType, allocator, useV2Protocol);
-
-		ByteBufList listBuf = digestManager.computeDigestAndPackageForSending(entryId, lac, length, data);
-		long result = digestManager.verifyDigestAndReturnLastConfirmed(ByteBufList.coalesce(listBuf))
-				.getLastAddConfirmed();
-		assertEquals(expectedLastConfirmed, result);
+		DigestManager digestManager = DigestManager.instantiate(ledgerId, new byte[6], digestType, allocator,
+				useV2Protocol);
+		long result = digestManager.verifyDigestAndReturnLastConfirmed(dataLastConfirmedReceived).getLastAddConfirmed();
+		assertEquals(expectedLastConfirmedVerify, result);
 	}
 
-	private static List<ByteBuf> createByteBufData(int length) {
+	// Genera un byteBuf senza usare computeDigest
+	private static ByteBuf createByteBufData(int capacity) {
 
-		ArrayList<ByteBuf> listByteBuff = new ArrayList<ByteBuf>();
+		ByteBuf byteBuff = Unpooled.buffer(capacity);
 
-		if (length == 0) {
-			listByteBuff.add(Unpooled.buffer(0));
-			listByteBuff.add(Unpooled.buffer(0));
-			return listByteBuff;
-		} else {
-
-			byte[] data = "Ciao".getBytes();
-			// Random random = new Random();
-			// Si riempie il buffer con dati random
-			// random.nextBytes(data);
-			ByteBuf bb = Unpooled.buffer("Ciao".length());
-			bb.writeBytes(data);
-			listByteBuff.add(bb);
-			listByteBuff.add(bb);
+		for (int i = 0; i < capacity; i++) {
+			byteBuff.writeBytes("a".getBytes());
 		}
-		return listByteBuff;
+		return byteBuff;
 	}
 
-//	private static ByteBuf createAndFillBuffer(boolean useV2Protocol, DigestType digestType, ByteBufAllocator allocator,
-//			long ledgerId, long lac) throws Exception {
-//
-//		int macCodeLength;
-//
-//		switch (digestType) {
-//		case HMAC:
-//			macCodeLength = 20;
-//			break;
-//		case CRC32:
-//			macCodeLength = 8;
-//			break;
-//		case CRC32C:
-//			macCodeLength = 4;
-//		case DUMMY:
-//			macCodeLength = 0;
-//		default:
-//			throw new Exception("Digest Type non valido");
-//		}
-//		ByteBuf headersBuffer;
-//		if (useV2Protocol) {
-//			headersBuffer = allocator.buffer(16 + macCodeLength);
-//		} else {
-//			headersBuffer = Unpooled.buffer(16 + macCodeLength);
-//		}
-//		headersBuffer.writeLong(ledgerId);
-//		headersBuffer.writeLong(lac);
-//		return headersBuffer;
-//	}
+	// Genera un byteBuf usando computeDigest
+	private static ByteBuf createByteBufComputeData(long ledgerId, ByteBufAllocator allocator, DigestType digestType,
+			boolean useV2Protocol, int lac, int length, int entryId, int capacity) throws GeneralSecurityException {
+
+		DigestManager digestManager = DigestManager.instantiate(ledgerId, new byte[6], digestType, allocator,
+				useV2Protocol);
+
+		ByteBuf byteBuf = createByteBufData(capacity);
+		ByteBufList dataPackagedList = digestManager.computeDigestAndPackageForSending(entryId, lac, length, byteBuf);
+
+		return ByteBufList.coalesce(dataPackagedList);
+	}
 
 }
