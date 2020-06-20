@@ -130,6 +130,8 @@ public class TestDigestManager {
 		return Arrays.asList(data);
 	}
 
+	// Ritorna in output due buffer: uno con il digest e altri dati, l'altro è
+	// quello che contiene i dati passati in input
 	@Test
 	public void computeDigestAndPackageForSending() throws GeneralSecurityException {
 
@@ -144,6 +146,7 @@ public class TestDigestManager {
 		assertEquals(expectedDataCompute, result.getBuffer(1));
 	}
 
+	// Ritorna in output il lac passato in input al computeDigest
 	@Test
 	public void verifyDigestAndReturnLacTest()
 			throws BKDigestMatchException, GeneralSecurityException, InvalidAttributeValueException {
@@ -181,6 +184,7 @@ public class TestDigestManager {
 		assertEquals(expectedDataVerify, result);
 	}
 
+	// Ritorna in output il lac passato in input al computeDigest
 	@Test
 	public void verifyDigestAndReturnLastConfirmed()
 			throws BKDigestMatchException, GeneralSecurityException, InvalidAttributeValueException {

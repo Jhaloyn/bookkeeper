@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>KeyValueStorageRocksDB.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">bookkeeper-server</a> &gt; <a href="index.source.html" class="el_package">org.apache.bookkeeper.bookie.storage.ldb</a> &gt; <span class="el_source">KeyValueStorageRocksDB.java</span></div><h1>KeyValueStorageRocksDB.java</h1><pre class="source lang-java linenums">/**
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
+ */
+package org.apache.bookkeeper.bookie.storage.ldb;
+
+import static com.google.common.base.Preconditions.checkState;
+
+import com.google.common.primitives.UnsignedBytes;
+
+//CHECKSTYLE.OFF: IllegalImport
+import io.netty.util.internal.PlatformDependent;
+//CHECKSTYLE.ON: IllegalImport
+
+import java.io.IOException;
+import java.util.Comparator;
+import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorageFactory.DbConfigType;
+import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.rocksdb.BlockBasedTableConfig;
+import org.rocksdb.BloomFilter;
+import org.rocksdb.ChecksumType;
+import org.rocksdb.CompressionType;
+import org.rocksdb.InfoLogLevel;
+import org.rocksdb.Options;
+import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
+import org.rocksdb.WriteBatch;
+import org.rocksdb.WriteOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * RocksDB based implementation of the KeyValueStorage.
+ */
+public class KeyValueStorageRocksDB implements KeyValueStorage {
+
+<span class="nc" id="L58">    static KeyValueStorageFactory factory = (path, dbConfigType, conf) -&gt; new KeyValueStorageRocksDB(path, dbConfigType,</span>
+            conf);
+
+    private final RocksDB db;
+
+    private final WriteOptions optionSync;
+    private final WriteOptions optionDontSync;
+
+    private final ReadOptions optionCache;
+    private final ReadOptions optionDontCache;
+
+    private final WriteBatch emptyBatch;
+
+    private static final String ROCKSDB_LOG_LEVEL = &quot;dbStorage_rocksDB_logLevel&quot;;
+    private static final String ROCKSDB_LZ4_COMPRESSION_ENABLED = &quot;dbStorage_rocksDB_lz4CompressionEnabled&quot;;
+    private static final String ROCKSDB_WRITE_BUFFER_SIZE_MB = &quot;dbStorage_rocksDB_writeBufferSizeMB&quot;;
+    private static final String ROCKSDB_SST_SIZE_MB = &quot;dbStorage_rocksDB_sstSizeInMB&quot;;
+    private static final String ROCKSDB_BLOCK_SIZE = &quot;dbStorage_rocksDB_blockSize&quot;;
+    private static final String ROCKSDB_BLOOM_FILTERS_BITS_PER_KEY = &quot;dbStorage_rocksDB_bloomFilterBitsPerKey&quot;;
+    private static final String ROCKSDB_BLOCK_CACHE_SIZE = &quot;dbStorage_rocksDB_blockCacheSize&quot;;
+    private static final String ROCKSDB_NUM_LEVELS = &quot;dbStorage_rocksDB_numLevels&quot;;
+    private static final String ROCKSDB_NUM_FILES_IN_LEVEL0 = &quot;dbStorage_rocksDB_numFilesInLevel0&quot;;
+    private static final String ROCKSDB_MAX_SIZE_IN_LEVEL1_MB = &quot;dbStorage_rocksDB_maxSizeInLevel1MB&quot;;
+
+    public KeyValueStorageRocksDB(String path, DbConfigType dbConfigType, ServerConfiguration conf) throws IOException {
+<span class="nc" id="L83">        this(path, dbConfigType, conf, false);</span>
+<span class="nc" id="L84">    }</span>
+
+    public KeyValueStorageRocksDB(String path, DbConfigType dbConfigType, ServerConfiguration conf, boolean readOnly)
+<span class="nc" id="L87">            throws IOException {</span>
+        try {
+<span class="nc" id="L89">            RocksDB.loadLibrary();</span>
+<span class="nc" id="L90">        } catch (Throwable t) {</span>
+<span class="nc" id="L91">            throw new IOException(&quot;Failed to load RocksDB JNI library&quot;, t);</span>
+<span class="nc" id="L92">        }</span>
+
+<span class="nc" id="L94">        this.optionSync = new WriteOptions();</span>
+<span class="nc" id="L95">        this.optionDontSync = new WriteOptions();</span>
+<span class="nc" id="L96">        this.optionCache = new ReadOptions();</span>
+<span class="nc" id="L97">        this.optionDontCache = new ReadOptions();</span>
+<span class="nc" id="L98">        this.emptyBatch = new WriteBatch();</span>
+
+<span class="nc" id="L100">        try (Options options = new Options()) {</span>
+<span class="nc" id="L101">            options.setCreateIfMissing(true);</span>
+
+<span class="nc bnc" id="L103" title="All 2 branches missed.">            if (dbConfigType == DbConfigType.Huge) {</span>
+                // Set default RocksDB block-cache size to 10% of direct mem, unless override
+<span class="nc" id="L105">                long defaultRocksDBBlockCacheSizeBytes = PlatformDependent.maxDirectMemory() / 10;</span>
+<span class="nc" id="L106">                long blockCacheSize = DbLedgerStorage.getLongVariableOrDefault(conf, ROCKSDB_BLOCK_CACHE_SIZE,</span>
+                        defaultRocksDBBlockCacheSizeBytes);
+
+<span class="nc" id="L109">                long writeBufferSizeMB = conf.getInt(ROCKSDB_WRITE_BUFFER_SIZE_MB, 64);</span>
+<span class="nc" id="L110">                long sstSizeMB = conf.getInt(ROCKSDB_SST_SIZE_MB, 64);</span>
+<span class="nc" id="L111">                int numLevels = conf.getInt(ROCKSDB_NUM_LEVELS, -1);</span>
+<span class="nc" id="L112">                int numFilesInLevel0 = conf.getInt(ROCKSDB_NUM_FILES_IN_LEVEL0, 4);</span>
+<span class="nc" id="L113">                long maxSizeInLevel1MB = conf.getLong(ROCKSDB_MAX_SIZE_IN_LEVEL1_MB, 256);</span>
+<span class="nc" id="L114">                int blockSize = conf.getInt(ROCKSDB_BLOCK_SIZE, 64 * 1024);</span>
+<span class="nc" id="L115">                int bloomFilterBitsPerKey = conf.getInt(ROCKSDB_BLOOM_FILTERS_BITS_PER_KEY, 10);</span>
+<span class="nc" id="L116">                boolean lz4CompressionEnabled = conf.getBoolean(ROCKSDB_LZ4_COMPRESSION_ENABLED, true);</span>
+
+<span class="nc bnc" id="L118" title="All 2 branches missed.">                if (lz4CompressionEnabled) {</span>
+<span class="nc" id="L119">                    options.setCompressionType(CompressionType.LZ4_COMPRESSION);</span>
+                }
+<span class="nc" id="L121">                options.setWriteBufferSize(writeBufferSizeMB * 1024 * 1024);</span>
+<span class="nc" id="L122">                options.setMaxWriteBufferNumber(4);</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">                if (numLevels &gt; 0) {</span>
+<span class="nc" id="L124">                    options.setNumLevels(numLevels);</span>
+                }
+<span class="nc" id="L126">                options.setLevelZeroFileNumCompactionTrigger(numFilesInLevel0);</span>
+<span class="nc" id="L127">                options.setMaxBytesForLevelBase(maxSizeInLevel1MB * 1024 * 1024);</span>
+<span class="nc" id="L128">                options.setMaxBackgroundCompactions(16);</span>
+<span class="nc" id="L129">                options.setMaxBackgroundFlushes(16);</span>
+<span class="nc" id="L130">                options.setIncreaseParallelism(32);</span>
+<span class="nc" id="L131">                options.setMaxTotalWalSize(512 * 1024 * 1024);</span>
+<span class="nc" id="L132">                options.setMaxOpenFiles(-1);</span>
+<span class="nc" id="L133">                options.setTargetFileSizeBase(sstSizeMB * 1024 * 1024);</span>
+<span class="nc" id="L134">                options.setDeleteObsoleteFilesPeriodMicros(TimeUnit.HOURS.toMicros(1));</span>
+
+<span class="nc" id="L136">                BlockBasedTableConfig tableOptions = new BlockBasedTableConfig();</span>
+<span class="nc" id="L137">                tableOptions.setBlockSize(blockSize);</span>
+<span class="nc" id="L138">                tableOptions.setBlockCacheSize(blockCacheSize);</span>
+<span class="nc" id="L139">                tableOptions.setFormatVersion(2);</span>
+<span class="nc" id="L140">                tableOptions.setChecksumType(ChecksumType.kxxHash);</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">                if (bloomFilterBitsPerKey &gt; 0) {</span>
+<span class="nc" id="L142">                    tableOptions.setFilter(new BloomFilter(bloomFilterBitsPerKey, false));</span>
+                }
+
+                // Options best suited for HDDs
+<span class="nc" id="L146">                tableOptions.setCacheIndexAndFilterBlocks(true);</span>
+<span class="nc" id="L147">                options.setLevelCompactionDynamicLevelBytes(true);</span>
+
+<span class="nc" id="L149">                options.setTableFormatConfig(tableOptions);</span>
+            }
+
+            // Configure log level
+<span class="nc" id="L153">            String logLevel = conf.getString(ROCKSDB_LOG_LEVEL, &quot;info&quot;);</span>
+<span class="nc bnc" id="L154" title="All 5 branches missed.">            switch (logLevel) {</span>
+            case &quot;debug&quot;:
+<span class="nc" id="L156">                options.setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL);</span>
+<span class="nc" id="L157">                break;</span>
+            case &quot;info&quot;:
+<span class="nc" id="L159">                options.setInfoLogLevel(InfoLogLevel.INFO_LEVEL);</span>
+<span class="nc" id="L160">                break;</span>
+            case &quot;warn&quot;:
+<span class="nc" id="L162">                options.setInfoLogLevel(InfoLogLevel.WARN_LEVEL);</span>
+<span class="nc" id="L163">                break;</span>
+            case &quot;error&quot;:
+<span class="nc" id="L165">                options.setInfoLogLevel(InfoLogLevel.ERROR_LEVEL);</span>
+<span class="nc" id="L166">                break;</span>
+            default:
+<span class="nc" id="L168">                log.warn(&quot;Unrecognized RockDB log level: {}&quot;, logLevel);</span>
+            }
+
+            // Keep log files for 1month
+<span class="nc" id="L172">            options.setKeepLogFileNum(30);</span>
+<span class="nc" id="L173">            options.setLogFileTimeToRoll(TimeUnit.DAYS.toSeconds(1));</span>
+
+            try {
+<span class="nc bnc" id="L176" title="All 2 branches missed.">                if (readOnly) {</span>
+<span class="nc" id="L177">                    db = RocksDB.openReadOnly(options, path);</span>
+                } else {
+<span class="nc" id="L179">                    db = RocksDB.open(options, path);</span>
+                }
+<span class="nc" id="L181">            } catch (RocksDBException e) {</span>
+<span class="nc" id="L182">                throw new IOException(&quot;Error open RocksDB database&quot;, e);</span>
+<span class="nc" id="L183">            }</span>
+        }
+
+<span class="nc" id="L186">        optionSync.setSync(true);</span>
+<span class="nc" id="L187">        optionDontSync.setSync(false);</span>
+
+<span class="nc" id="L189">        optionCache.setFillCache(true);</span>
+<span class="nc" id="L190">        optionDontCache.setFillCache(false);</span>
+<span class="nc" id="L191">    }</span>
+
+    @Override
+    public void close() throws IOException {
+<span class="nc" id="L195">        db.close();</span>
+<span class="nc" id="L196">        optionSync.close();</span>
+<span class="nc" id="L197">        optionDontSync.close();</span>
+<span class="nc" id="L198">        optionCache.close();</span>
+<span class="nc" id="L199">        optionDontCache.close();</span>
+<span class="nc" id="L200">        emptyBatch.close();</span>
+<span class="nc" id="L201">    }</span>
+
+    @Override
+    public void put(byte[] key, byte[] value) throws IOException {
+        try {
+<span class="nc" id="L206">            db.put(optionDontSync, key, value);</span>
+<span class="nc" id="L207">        } catch (RocksDBException e) {</span>
+<span class="nc" id="L208">            throw new IOException(&quot;Error in RocksDB put&quot;, e);</span>
+<span class="nc" id="L209">        }</span>
+<span class="nc" id="L210">    }</span>
+
+    @Override
+    public byte[] get(byte[] key) throws IOException {
+        try {
+<span class="nc" id="L215">            return db.get(key);</span>
+<span class="nc" id="L216">        } catch (RocksDBException e) {</span>
+<span class="nc" id="L217">            throw new IOException(&quot;Error in RocksDB get&quot;, e);</span>
+        }
+    }
+
+    @Override
+    public int get(byte[] key, byte[] value) throws IOException {
+        try {
+<span class="nc" id="L224">            int res = db.get(key, value);</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">            if (res == RocksDB.NOT_FOUND) {</span>
+<span class="nc" id="L226">                return -1;</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">            } else if (res &gt; value.length) {</span>
+<span class="nc" id="L228">                throw new IOException(&quot;Value array is too small to fit the result&quot;);</span>
+            } else {
+<span class="nc" id="L230">                return res;</span>
+            }
+<span class="nc" id="L232">        } catch (RocksDBException e) {</span>
+<span class="nc" id="L233">            throw new IOException(&quot;Error in RocksDB get&quot;, e);</span>
+        }
+    }
+
+    @Override
+    public Entry&lt;byte[], byte[]&gt; getFloor(byte[] key) throws IOException {
+<span class="nc" id="L239">        try (RocksIterator iterator = db.newIterator(optionCache)) {</span>
+            // Position the iterator on the record whose key is &gt;= to the supplied key
+<span class="nc" id="L241">            iterator.seek(key);</span>
+
+<span class="nc bnc" id="L243" title="All 2 branches missed.">            if (!iterator.isValid()) {</span>
+                // There are no entries &gt;= key
+<span class="nc" id="L245">                iterator.seekToLast();</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                if (iterator.isValid()) {</span>
+<span class="nc" id="L247">                    return new EntryWrapper(iterator.key(), iterator.value());</span>
+                } else {
+                    // Db is empty
+<span class="nc" id="L250">                    return null;</span>
+                }
+            }
+
+<span class="nc" id="L254">            iterator.prev();</span>
+
+<span class="nc bnc" id="L256" title="All 2 branches missed.">            if (!iterator.isValid()) {</span>
+                // Iterator is on the 1st entry of the db and this entry key is &gt;= to the target
+                // key
+<span class="nc" id="L259">                return null;</span>
+            } else {
+<span class="nc" id="L261">                return new EntryWrapper(iterator.key(), iterator.value());</span>
+            }
+<span class="nc bnc" id="L263" title="All 6 branches missed.">        }</span>
+    }
+
+    @Override
+    public Entry&lt;byte[], byte[]&gt; getCeil(byte[] key) throws IOException {
+<span class="nc" id="L268">        try (RocksIterator iterator = db.newIterator(optionCache)) {</span>
+            // Position the iterator on the record whose key is &gt;= to the supplied key
+<span class="nc" id="L270">            iterator.seek(key);</span>
+
+<span class="nc bnc" id="L272" title="All 2 branches missed.">            if (iterator.isValid()) {</span>
+<span class="nc" id="L273">                return new EntryWrapper(iterator.key(), iterator.value());</span>
+            } else {
+<span class="nc" id="L275">                return null;</span>
+            }
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        }</span>
+    }
+
+    @Override
+    public void delete(byte[] key) throws IOException {
+        try {
+<span class="nc" id="L283">            db.delete(optionDontSync, key);</span>
+<span class="nc" id="L284">        } catch (RocksDBException e) {</span>
+<span class="nc" id="L285">            throw new IOException(&quot;Error in RocksDB delete&quot;, e);</span>
+<span class="nc" id="L286">        }</span>
+<span class="nc" id="L287">    }</span>
+
+    @Override
+    public void sync() throws IOException {
+        try {
+<span class="nc" id="L292">            db.write(optionSync, emptyBatch);</span>
+<span class="nc" id="L293">        } catch (RocksDBException e) {</span>
+<span class="nc" id="L294">            throw new IOException(e);</span>
+<span class="nc" id="L295">        }</span>
+<span class="nc" id="L296">    }</span>
+
+    @Override
+    public CloseableIterator&lt;byte[]&gt; keys() {
+<span class="nc" id="L300">        final RocksIterator iterator = db.newIterator(optionCache);</span>
+<span class="nc" id="L301">        iterator.seekToFirst();</span>
+
+<span class="nc" id="L303">        return new CloseableIterator&lt;byte[]&gt;() {</span>
+            @Override
+            public boolean hasNext() {
+<span class="nc" id="L306">                return iterator.isValid();</span>
+            }
+
+            @Override
+            public byte[] next() {
+<span class="nc" id="L311">                checkState(iterator.isValid());</span>
+<span class="nc" id="L312">                byte[] key = iterator.key();</span>
+<span class="nc" id="L313">                iterator.next();</span>
+<span class="nc" id="L314">                return key;</span>
+            }
+
+            @Override
+            public void close() {
+<span class="nc" id="L319">                iterator.close();</span>
+<span class="nc" id="L320">            }</span>
+        };
+    }
+
+    @Override
+    public CloseableIterator&lt;byte[]&gt; keys(byte[] firstKey, byte[] lastKey) {
+<span class="nc" id="L326">        final RocksIterator iterator = db.newIterator(optionCache);</span>
+<span class="nc" id="L327">        iterator.seek(firstKey);</span>
+
+<span class="nc" id="L329">        return new CloseableIterator&lt;byte[]&gt;() {</span>
+            @Override
+            public boolean hasNext() {
+<span class="nc bnc" id="L332" title="All 4 branches missed.">                return iterator.isValid() &amp;&amp; ByteComparator.compare(iterator.key(), lastKey) &lt; 0;</span>
+            }
+
+            @Override
+            public byte[] next() {
+<span class="nc" id="L337">                checkState(iterator.isValid());</span>
+<span class="nc" id="L338">                byte[] key = iterator.key();</span>
+<span class="nc" id="L339">                iterator.next();</span>
+<span class="nc" id="L340">                return key;</span>
+            }
+
+            @Override
+            public void close() {
+<span class="nc" id="L345">                iterator.close();</span>
+<span class="nc" id="L346">            }</span>
+        };
+    }
+
+    @Override
+    public CloseableIterator&lt;Entry&lt;byte[], byte[]&gt;&gt; iterator() {
+<span class="nc" id="L352">        final RocksIterator iterator = db.newIterator(optionDontCache);</span>
+<span class="nc" id="L353">        iterator.seekToFirst();</span>
+<span class="nc" id="L354">        final EntryWrapper entryWrapper = new EntryWrapper();</span>
+
+<span class="nc" id="L356">        return new CloseableIterator&lt;Entry&lt;byte[], byte[]&gt;&gt;() {</span>
+            @Override
+            public boolean hasNext() {
+<span class="nc" id="L359">                return iterator.isValid();</span>
+            }
+
+            @Override
+            public Entry&lt;byte[], byte[]&gt; next() {
+<span class="nc" id="L364">                checkState(iterator.isValid());</span>
+<span class="nc" id="L365">                entryWrapper.key = iterator.key();</span>
+<span class="nc" id="L366">                entryWrapper.value = iterator.value();</span>
+<span class="nc" id="L367">                iterator.next();</span>
+<span class="nc" id="L368">                return entryWrapper;</span>
+            }
+
+            @Override
+            public void close() {
+<span class="nc" id="L373">                iterator.close();</span>
+<span class="nc" id="L374">            }</span>
+        };
+    }
+
+    @Override
+    public long count() throws IOException {
+        try {
+<span class="nc" id="L381">            return db.getLongProperty(&quot;rocksdb.estimate-num-keys&quot;);</span>
+<span class="nc" id="L382">        } catch (RocksDBException e) {</span>
+<span class="nc" id="L383">            throw new IOException(&quot;Error in getting records count&quot;, e);</span>
+        }
+    }
+
+    @Override
+    public Batch newBatch() {
+<span class="nc" id="L389">        return new RocksDBBatch();</span>
+    }
+
+<span class="nc" id="L392">    private class RocksDBBatch implements Batch {</span>
+<span class="nc" id="L393">        private final WriteBatch writeBatch = new WriteBatch();</span>
+
+        @Override
+        public void close() {
+<span class="nc" id="L397">            writeBatch.close();</span>
+<span class="nc" id="L398">        }</span>
+
+        @Override
+        public void put(byte[] key, byte[] value) throws IOException {
+            try {
+<span class="nc" id="L403">                writeBatch.put(key, value);</span>
+<span class="nc" id="L404">            } catch (RocksDBException e) {</span>
+<span class="nc" id="L405">                throw new IOException(&quot;Failed to flush RocksDB batch&quot;, e);</span>
+<span class="nc" id="L406">            }</span>
+<span class="nc" id="L407">        }</span>
+
+        @Override
+        public void remove(byte[] key) throws IOException {
+            try {
+<span class="nc" id="L412">                writeBatch.delete(key);</span>
+<span class="nc" id="L413">            } catch (RocksDBException e) {</span>
+<span class="nc" id="L414">                throw new IOException(&quot;Failed to flush RocksDB batch&quot;, e);</span>
+<span class="nc" id="L415">            }</span>
+<span class="nc" id="L416">        }</span>
+
+        @Override
+        public void clear() {
+<span class="nc" id="L420">            writeBatch.clear();</span>
+<span class="nc" id="L421">        }</span>
+
+        @Override
+        public void deleteRange(byte[] beginKey, byte[] endKey) throws IOException {
+            try {
+<span class="nc" id="L426">                writeBatch.deleteRange(beginKey, endKey);</span>
+<span class="nc" id="L427">            } catch (RocksDBException e) {</span>
+<span class="nc" id="L428">                throw new IOException(&quot;Failed to flush RocksDB batch&quot;, e);</span>
+<span class="nc" id="L429">            }</span>
+<span class="nc" id="L430">        }</span>
+
+        @Override
+        public void flush() throws IOException {
+            try {
+<span class="nc" id="L435">                db.write(optionSync, writeBatch);</span>
+<span class="nc" id="L436">            } catch (RocksDBException e) {</span>
+<span class="nc" id="L437">                throw new IOException(&quot;Failed to flush RocksDB batch&quot;, e);</span>
+<span class="nc" id="L438">            }</span>
+<span class="nc" id="L439">        }</span>
+    }
+
+    private static final class EntryWrapper implements Entry&lt;byte[], byte[]&gt; {
+        // This is not final since the iterator will reuse the same EntryWrapper
+        // instance at each step
+        private byte[] key;
+        private byte[] value;
+
+<span class="nc" id="L448">        public EntryWrapper() {</span>
+<span class="nc" id="L449">            this.key = null;</span>
+<span class="nc" id="L450">            this.value = null;</span>
+<span class="nc" id="L451">        }</span>
+
+<span class="nc" id="L453">        public EntryWrapper(byte[] key, byte[] value) {</span>
+<span class="nc" id="L454">            this.key = key;</span>
+<span class="nc" id="L455">            this.value = value;</span>
+<span class="nc" id="L456">        }</span>
+
+        @Override
+        public byte[] setValue(byte[] value) {
+<span class="nc" id="L460">            throw new UnsupportedOperationException();</span>
+        }
+
+        @Override
+        public byte[] getValue() {
+<span class="nc" id="L465">            return value;</span>
+        }
+
+        @Override
+        public byte[] getKey() {
+<span class="nc" id="L470">            return key;</span>
+        }
+    }
+
+<span class="nc" id="L474">    private static final Comparator&lt;byte[]&gt; ByteComparator = UnsignedBytes.lexicographicalComparator();</span>
+
+<span class="nc" id="L476">    private static final Logger log = LoggerFactory.getLogger(KeyValueStorageRocksDB.class);</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>BookieInfoReader.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">bookkeeper-server</a> &gt; <a href="index.source.html" class="el_package">org.apache.bookkeeper.client</a> &gt; <span class="el_source">BookieInfoReader.java</span></div><h1>BookieInfoReader.java</h1><pre class="source lang-java linenums">/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.bookkeeper.client;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.bookkeeper.client.WeightedRandomSelection.WeightedObject;
+import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.proto.BookieClient;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GetBookieInfoCallback;
+import org.apache.bookkeeper.proto.BookkeeperProtocol;
+import org.apache.commons.collections4.CollectionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * A utility class to read {@link BookieInfo} from bookies.
+ *
+ * &lt;p&gt;NOTE: This class is tended to be used by this project only. External users should not rely on it directly.
+ */
+<span class="nc bnc" id="L47" title="All 2 branches missed.">public class BookieInfoReader {</span>
+<span class="nc" id="L48">    private static final Logger LOG = LoggerFactory.getLogger(BookieInfoReader.class);</span>
+    private static final long GET_BOOKIE_INFO_REQUEST_FLAGS =
+        BookkeeperProtocol.GetBookieInfoRequest.Flags.TOTAL_DISK_CAPACITY_VALUE
+                               | BookkeeperProtocol.GetBookieInfoRequest.Flags.FREE_DISK_SPACE_VALUE;
+
+    private final ScheduledExecutorService scheduler;
+    private final BookKeeper bk;
+    private final ClientConfiguration conf;
+
+    /**
+     * A class represents the information (e.g. disk usage, load) of a bookie.
+     *
+     * &lt;p&gt;NOTE: This class is tended to be used by this project only. External users should not rely on it directly.
+     */
+    public static class BookieInfo implements WeightedObject {
+        private final long freeDiskSpace;
+        private final long totalDiskSpace;
+        public BookieInfo() {
+<span class="nc" id="L66">            this(0L, 0L);</span>
+<span class="nc" id="L67">        }</span>
+<span class="nc" id="L68">        public BookieInfo(long totalDiskSpace, long freeDiskSpace) {</span>
+<span class="nc" id="L69">            this.totalDiskSpace = totalDiskSpace;</span>
+<span class="nc" id="L70">            this.freeDiskSpace = freeDiskSpace;</span>
+<span class="nc" id="L71">        }</span>
+        public long getFreeDiskSpace() {
+<span class="nc" id="L73">            return freeDiskSpace;</span>
+        }
+        public long getTotalDiskSpace() {
+<span class="nc" id="L76">            return totalDiskSpace;</span>
+        }
+        @Override
+        public long getWeight() {
+<span class="nc" id="L80">            return freeDiskSpace;</span>
+        }
+        public String toString() {
+<span class="nc" id="L83">            return &quot;FreeDiskSpace: &quot; + this.freeDiskSpace + &quot; TotalDiskCapacity: &quot; + this.totalDiskSpace;</span>
+        }
+    }
+
+
+    /**
+     * Tracks the most recently reported set of bookies from BookieWatcher as well
+     * as current BookieInfo for bookies we've successfully queried.
+     */
+<span class="nc" id="L92">    private static class BookieInfoMap {</span>
+        /**
+         * Contains the most recently obtained information on the contained bookies.
+         * When an error happens querying a bookie, the entry is removed.
+         */
+<span class="nc" id="L97">        private final Map&lt;BookieSocketAddress, BookieInfo&gt; infoMap = new HashMap&lt;&gt;();</span>
+
+        /**
+         * Contains the most recently reported set of bookies from BookieWatcher
+         * A partial query consists of every member of mostRecentlyReportedBookies
+         * minus the entries in bookieInfoMap.
+         */
+<span class="nc" id="L104">        private Collection&lt;BookieSocketAddress&gt; mostRecentlyReportedBookies = new ArrayList&lt;&gt;();</span>
+
+        public void updateBookies(Collection&lt;BookieSocketAddress&gt; updatedBookieSet) {
+<span class="nc bnc" id="L107" title="All 2 branches missed.">            if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L108">                LOG.debug(</span>
+                        &quot;updateBookies: current: {}, new: {}&quot;,
+                        mostRecentlyReportedBookies, updatedBookieSet);
+            }
+<span class="nc" id="L112">            infoMap.keySet().retainAll(updatedBookieSet);</span>
+<span class="nc" id="L113">            mostRecentlyReportedBookies = updatedBookieSet;</span>
+<span class="nc" id="L114">        }</span>
+
+        @SuppressWarnings(&quot;unchecked&quot;)
+        public Collection&lt;BookieSocketAddress&gt; getPartialScanTargets() {
+<span class="nc" id="L118">            return CollectionUtils.subtract(mostRecentlyReportedBookies, infoMap.keySet());</span>
+        }
+
+        public Collection&lt;BookieSocketAddress&gt; getFullScanTargets() {
+<span class="nc" id="L122">            return mostRecentlyReportedBookies;</span>
+        }
+
+        /**
+         * Returns info for bookie, null if not known.
+         *
+         * @param bookie bookie for which to get info
+         * @return Info for bookie, null otherwise
+         */
+        public BookieInfo getInfo(BookieSocketAddress bookie) {
+<span class="nc" id="L132">            return infoMap.get(bookie);</span>
+        }
+
+        /**
+         * Removes bookie from bookieInfoMap.
+         *
+         * @param bookie bookie on which we observed an error
+         */
+        public void clearInfo(BookieSocketAddress bookie) {
+<span class="nc" id="L141">            infoMap.remove(bookie);</span>
+<span class="nc" id="L142">        }</span>
+
+        /**
+         * Report new info on bookie.
+         *
+         * @param bookie bookie for which we obtained new info
+         * @param info the new info
+         */
+        public void gotInfo(BookieSocketAddress bookie, BookieInfo info) {
+<span class="nc" id="L151">            infoMap.put(bookie, info);</span>
+<span class="nc" id="L152">        }</span>
+
+        /**
+         * Get bookie info map.
+         */
+        public Map&lt;BookieSocketAddress, BookieInfo&gt; getBookieMap() {
+<span class="nc" id="L158">            return infoMap;</span>
+        }
+    }
+<span class="nc" id="L161">    private final BookieInfoMap bookieInfoMap = new BookieInfoMap();</span>
+
+    /**
+     * Tracks whether there is an execution in progress as well as whether
+     * another is pending.
+     */
+<span class="nc" id="L167">    public enum State { UNQUEUED, PARTIAL, FULL }</span>
+<span class="nc" id="L168">    private static class InstanceState {</span>
+<span class="nc" id="L169">        private boolean running = false;</span>
+<span class="nc" id="L170">        private State queuedType = State.UNQUEUED;</span>
+
+        private boolean shouldStart() {
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            if (running) {</span>
+<span class="nc" id="L174">                return false;</span>
+            } else {
+<span class="nc" id="L176">                running = true;</span>
+<span class="nc" id="L177">                return true;</span>
+            }
+        }
+
+        /**
+         * Mark pending operation FULL and return true if there is no in-progress operation.
+         *
+         * @return True if we should execute a scan, False if there is already one running
+         */
+        public boolean tryStartFull() {
+<span class="nc" id="L187">            queuedType = State.FULL;</span>
+<span class="nc" id="L188">            return shouldStart();</span>
+        }
+
+        /**
+         * Mark pending operation PARTIAL if not full and return true if there is no in-progress operation.
+         *
+         * @return True if we should execute a scan, False if there is already one running
+         */
+        public boolean tryStartPartial() {
+<span class="nc bnc" id="L197" title="All 2 branches missed.">            if (queuedType == State.UNQUEUED) {</span>
+<span class="nc" id="L198">                queuedType = State.PARTIAL;</span>
+            }
+<span class="nc" id="L200">            return shouldStart();</span>
+        }
+
+        /**
+         * Gets and clears queuedType.
+         */
+        public State getAndClearQueuedType() {
+<span class="nc" id="L207">            State ret = queuedType;</span>
+<span class="nc" id="L208">            queuedType = State.UNQUEUED;</span>
+<span class="nc" id="L209">            return ret;</span>
+        }
+
+        /**
+         * If queuedType != UNQUEUED, returns true, leaves running equal to true
+         * Otherwise, returns false and sets running to false.
+         */
+        public boolean completeUnlessQueued() {
+<span class="nc bnc" id="L217" title="All 2 branches missed.">            if (queuedType == State.UNQUEUED) {</span>
+<span class="nc" id="L218">                running = false;</span>
+<span class="nc" id="L219">                return false;</span>
+            } else {
+<span class="nc" id="L221">                return true;</span>
+            }
+        }
+    }
+<span class="nc" id="L225">    private final InstanceState instanceState = new InstanceState();</span>
+
+    BookieInfoReader(BookKeeper bk,
+                     ClientConfiguration conf,
+<span class="nc" id="L229">                     ScheduledExecutorService scheduler) {</span>
+<span class="nc" id="L230">        this.bk = bk;</span>
+<span class="nc" id="L231">        this.conf = conf;</span>
+<span class="nc" id="L232">        this.scheduler = scheduler;</span>
+<span class="nc" id="L233">    }</span>
+
+    public void start() {
+<span class="nc" id="L236">        this.bk</span>
+<span class="nc" id="L237">            .getMetadataClientDriver()</span>
+<span class="nc" id="L238">            .getRegistrationClient()</span>
+<span class="nc" id="L239">            .watchWritableBookies(bookies -&gt; availableBookiesChanged(bookies.getValue()));</span>
+<span class="nc" id="L240">        scheduler.scheduleAtFixedRate(new Runnable() {</span>
+            @Override
+            public void run() {
+<span class="nc" id="L243">                synchronized (BookieInfoReader.this) {</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">                    if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L245">                        LOG.debug(&quot;Running periodic BookieInfo scan&quot;);</span>
+                    }
+                    try {
+<span class="nc" id="L248">                        Collection&lt;BookieSocketAddress&gt; updatedBookies = bk.bookieWatcher.getBookies();</span>
+<span class="nc" id="L249">                        bookieInfoMap.updateBookies(updatedBookies);</span>
+<span class="nc" id="L250">                    } catch (BKException e) {</span>
+<span class="nc" id="L251">                        LOG.info(&quot;Got exception while querying bookies from watcher, rerunning after {}s&quot;,</span>
+<span class="nc" id="L252">                                 conf.getGetBookieInfoRetryIntervalSeconds(), e);</span>
+<span class="nc" id="L253">                        scheduler.schedule(this, conf.getGetBookieInfoRetryIntervalSeconds(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L254">                        return;</span>
+<span class="nc" id="L255">                    }</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">                    if (instanceState.tryStartFull()) {</span>
+<span class="nc" id="L257">                        getReadWriteBookieInfo();</span>
+                    }
+<span class="nc" id="L259">                }</span>
+<span class="nc" id="L260">            }</span>
+<span class="nc" id="L261">        }, 0, conf.getGetBookieInfoIntervalSeconds(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L262">    }</span>
+
+    private void submitTask() {
+<span class="nc" id="L265">        scheduler.submit(() -&gt; getReadWriteBookieInfo());</span>
+<span class="nc" id="L266">    }</span>
+
+    private void submitTaskWithDelay(int delaySeconds) {
+<span class="nc" id="L269">        scheduler.schedule(() -&gt; getReadWriteBookieInfo(), delaySeconds, TimeUnit.SECONDS);</span>
+<span class="nc" id="L270">    }</span>
+
+    synchronized void availableBookiesChanged(Set&lt;BookieSocketAddress&gt; updatedBookiesList) {
+<span class="nc bnc" id="L273" title="All 2 branches missed.">        if (LOG.isInfoEnabled()) {</span>
+<span class="nc" id="L274">            LOG.info(&quot;Scheduling bookie info read due to changes in available bookies.&quot;);</span>
+        }
+<span class="nc" id="L276">        bookieInfoMap.updateBookies(updatedBookiesList);</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        if (instanceState.tryStartPartial()) {</span>
+<span class="nc" id="L278">            submitTask();</span>
+        }
+<span class="nc" id="L280">    }</span>
+
+    /**
+     * Method to allow tests to block until bookie info is available.
+     *
+     * @param bookie to lookup
+     * @return None if absent, free disk space if present
+     */
+    synchronized Optional&lt;Long&gt; getFreeDiskSpace(BookieSocketAddress bookie) {
+<span class="nc" id="L289">        BookieInfo bookieInfo = bookieInfoMap.getInfo(bookie);</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">        if (bookieInfo != null) {</span>
+<span class="nc" id="L291">            return Optional.of(bookieInfo.getFreeDiskSpace());</span>
+        } else {
+<span class="nc" id="L293">            return Optional.empty();</span>
+        }
+    }
+
+    /* State to track scan execution progress as callbacks come in */
+<span class="nc" id="L298">    private int totalSent = 0;</span>
+<span class="nc" id="L299">    private int completedCnt = 0;</span>
+<span class="nc" id="L300">    private int errorCnt = 0;</span>
+
+    /**
+     * Performs scan described by instanceState using the cached bookie information
+     * in bookieInfoMap.
+     */
+    synchronized void getReadWriteBookieInfo() {
+<span class="nc" id="L307">        State queuedType = instanceState.getAndClearQueuedType();</span>
+        Collection&lt;BookieSocketAddress&gt; toScan;
+<span class="nc bnc" id="L309" title="All 2 branches missed.">        if (queuedType == State.FULL) {</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">            if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L311">                LOG.debug(&quot;Doing full scan&quot;);</span>
+            }
+<span class="nc" id="L313">            toScan = bookieInfoMap.getFullScanTargets();</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">        } else if (queuedType == State.PARTIAL) {</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">            if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L316">                LOG.debug(&quot;Doing partial scan&quot;);</span>
+            }
+<span class="nc" id="L318">            toScan = bookieInfoMap.getPartialScanTargets();</span>
+        } else {
+<span class="nc bnc" id="L320" title="All 2 branches missed.">            if (LOG.isErrorEnabled()) {</span>
+<span class="nc" id="L321">                LOG.error(&quot;Invalid state, queuedType cannot be UNQUEUED in getReadWriteBookieInfo&quot;);</span>
+            }
+<span class="nc bnc" id="L323" title="All 4 branches missed.">            assert(queuedType != State.UNQUEUED);</span>
+<span class="nc" id="L324">            return;</span>
+        }
+
+<span class="nc" id="L327">        BookieClient bkc = bk.getBookieClient();</span>
+<span class="nc" id="L328">        final long requested = BookkeeperProtocol.GetBookieInfoRequest.Flags.TOTAL_DISK_CAPACITY_VALUE</span>
+                               | BookkeeperProtocol.GetBookieInfoRequest.Flags.FREE_DISK_SPACE_VALUE;
+<span class="nc" id="L330">        totalSent = 0;</span>
+<span class="nc" id="L331">        completedCnt = 0;</span>
+<span class="nc" id="L332">        errorCnt = 0;</span>
+
+<span class="nc bnc" id="L334" title="All 2 branches missed.">        if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L335">            LOG.debug(&quot;Getting bookie info for: {}&quot;, toScan);</span>
+        }
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        for (BookieSocketAddress b : toScan) {</span>
+<span class="nc" id="L338">            bkc.getBookieInfo(b, requested,</span>
+<span class="nc" id="L339">                    new GetBookieInfoCallback() {</span>
+                        void processReadInfoComplete(int rc, BookieInfo bInfo, Object ctx) {
+<span class="nc" id="L341">                            synchronized (BookieInfoReader.this) {</span>
+<span class="nc" id="L342">                                BookieSocketAddress b = (BookieSocketAddress) ctx;</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">                                if (rc != BKException.Code.OK) {</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">                                    if (LOG.isErrorEnabled()) {</span>
+<span class="nc" id="L345">                                        LOG.error(&quot;Reading bookie info from bookie {} failed due to {}&quot;,</span>
+<span class="nc" id="L346">                                                b, BKException.codeLogger(rc));</span>
+                                    }
+                                    // We reread bookies missing from the map each time, so remove to ensure
+                                    // we get to it on the next scan
+<span class="nc" id="L350">                                    bookieInfoMap.clearInfo(b);</span>
+<span class="nc" id="L351">                                    errorCnt++;</span>
+                                } else {
+<span class="nc bnc" id="L353" title="All 2 branches missed.">                                    if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L354">                                        LOG.debug(&quot;Bookie Info for bookie {} is {}&quot;, b, bInfo);</span>
+                                    }
+<span class="nc" id="L356">                                    bookieInfoMap.gotInfo(b, bInfo);</span>
+                                }
+<span class="nc" id="L358">                                completedCnt++;</span>
+<span class="nc bnc" id="L359" title="All 2 branches missed.">                                if (totalSent == completedCnt) {</span>
+<span class="nc" id="L360">                                    onExit();</span>
+                                }
+<span class="nc" id="L362">                            }</span>
+<span class="nc" id="L363">                        }</span>
+                        @Override
+                        public void getBookieInfoComplete(final int rc, final BookieInfo bInfo, final Object ctx) {
+<span class="nc" id="L366">                            scheduler.submit(</span>
+<span class="nc" id="L367">                                new Runnable() {</span>
+                                    @Override
+                                    public void run() {
+<span class="nc" id="L370">                                        processReadInfoComplete(rc, bInfo, ctx);</span>
+<span class="nc" id="L371">                                    }</span>
+                                });
+<span class="nc" id="L373">                        }</span>
+                    }, b);
+<span class="nc" id="L375">            totalSent++;</span>
+<span class="nc" id="L376">        }</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">        if (totalSent == 0) {</span>
+<span class="nc" id="L378">            onExit();</span>
+        }
+<span class="nc" id="L380">    }</span>
+
+    void onExit() {
+<span class="nc" id="L383">        bk.placementPolicy.updateBookieInfo(bookieInfoMap.getBookieMap());</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">        if (errorCnt &gt; 0) {</span>
+<span class="nc bnc" id="L385" title="All 2 branches missed.">            if (LOG.isInfoEnabled()) {</span>
+<span class="nc" id="L386">                LOG.info(&quot;Rescheduling in {}s due to errors&quot;, conf.getGetBookieInfoIntervalSeconds());</span>
+            }
+<span class="nc" id="L388">            instanceState.tryStartPartial();</span>
+<span class="nc" id="L389">            submitTaskWithDelay(conf.getGetBookieInfoRetryIntervalSeconds());</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">        } else if (instanceState.completeUnlessQueued()) {</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">            if (LOG.isInfoEnabled()) {</span>
+<span class="nc" id="L392">                LOG.info(&quot;Rescheduling, another scan is pending&quot;);</span>
+            }
+<span class="nc" id="L394">            submitTask();</span>
+        }
+<span class="nc" id="L396">    }</span>
+
+    Map&lt;BookieSocketAddress, BookieInfo&gt; getBookieInfo() throws BKException, InterruptedException {
+<span class="nc" id="L399">        BookieClient bkc = bk.getBookieClient();</span>
+<span class="nc" id="L400">        final AtomicInteger totalSent = new AtomicInteger();</span>
+<span class="nc" id="L401">        final AtomicInteger totalCompleted = new AtomicInteger();</span>
+<span class="nc" id="L402">        final ConcurrentMap&lt;BookieSocketAddress, BookieInfo&gt; map =</span>
+            new ConcurrentHashMap&lt;BookieSocketAddress, BookieInfo&gt;();
+<span class="nc" id="L404">        final CountDownLatch latch = new CountDownLatch(1);</span>
+<span class="nc" id="L405">        long requested = BookkeeperProtocol.GetBookieInfoRequest.Flags.TOTAL_DISK_CAPACITY_VALUE</span>
+                         | BookkeeperProtocol.GetBookieInfoRequest.Flags.FREE_DISK_SPACE_VALUE;
+
+        Collection&lt;BookieSocketAddress&gt; bookies;
+<span class="nc" id="L409">        bookies = bk.bookieWatcher.getBookies();</span>
+<span class="nc" id="L410">        bookies.addAll(bk.bookieWatcher.getReadOnlyBookies());</span>
+
+<span class="nc" id="L412">        totalSent.set(bookies.size());</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">        for (BookieSocketAddress b : bookies) {</span>
+<span class="nc" id="L414">            bkc.getBookieInfo(b, requested, new GetBookieInfoCallback() {</span>
+                        @Override
+                        public void getBookieInfoComplete(int rc, BookieInfo bInfo, Object ctx) {
+<span class="nc" id="L417">                            BookieSocketAddress b = (BookieSocketAddress) ctx;</span>
+<span class="nc bnc" id="L418" title="All 2 branches missed.">                            if (rc != BKException.Code.OK) {</span>
+<span class="nc bnc" id="L419" title="All 2 branches missed.">                                if (LOG.isErrorEnabled()) {</span>
+<span class="nc" id="L420">                                    LOG.error(&quot;Reading bookie info from bookie {} failed due to {}&quot;,</span>
+<span class="nc" id="L421">                                            b, BKException.codeLogger(rc));</span>
+                                }
+                            } else {
+<span class="nc bnc" id="L424" title="All 2 branches missed.">                                if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L425">                                    LOG.debug(&quot;Free disk space on bookie {} is {}.&quot;, b, bInfo.getFreeDiskSpace());</span>
+                                }
+<span class="nc" id="L427">                                map.put(b, bInfo);</span>
+                            }
+<span class="nc bnc" id="L429" title="All 2 branches missed.">                            if (totalCompleted.incrementAndGet() == totalSent.get()) {</span>
+<span class="nc" id="L430">                                latch.countDown();</span>
+                            }
+<span class="nc" id="L432">                        }</span>
+                    }, b);
+<span class="nc" id="L434">        }</span>
+        try {
+<span class="nc" id="L436">            latch.await();</span>
+<span class="nc" id="L437">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L438">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L439">            LOG.error(&quot;Received InterruptedException &quot;, e);</span>
+<span class="nc" id="L440">            throw e;</span>
+<span class="nc" id="L441">        }</span>
+<span class="nc" id="L442">        return map;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

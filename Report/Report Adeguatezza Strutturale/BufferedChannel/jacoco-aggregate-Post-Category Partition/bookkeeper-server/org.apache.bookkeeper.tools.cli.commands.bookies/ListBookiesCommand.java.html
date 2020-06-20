@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ListBookiesCommand.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">bookkeeper-server</a> &gt; <a href="index.source.html" class="el_package">org.apache.bookkeeper.tools.cli.commands.bookies</a> &gt; <span class="el_source">ListBookiesCommand.java</span></div><h1>ListBookiesCommand.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.bookkeeper.tools.cli.commands.bookies;
+
+import static org.apache.bookkeeper.common.concurrent.FutureUtils.result;
+import static org.apache.bookkeeper.tools.cli.helpers.CommandHelpers.getBookieSocketAddrStringRepresentation;
+
+import com.beust.jcommander.Parameter;
+import java.util.Collection;
+import java.util.Set;
+import lombok.Setter;
+import lombok.experimental.Accessors;
+import org.apache.bookkeeper.discover.RegistrationClient;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.tools.cli.commands.bookies.ListBookiesCommand.Flags;
+import org.apache.bookkeeper.tools.cli.helpers.DiscoveryCommand;
+import org.apache.bookkeeper.tools.framework.CliFlags;
+import org.apache.bookkeeper.tools.framework.CliSpec;
+
+/**
+ * Command to list available bookies.
+ */
+public class ListBookiesCommand extends DiscoveryCommand&lt;Flags&gt; {
+
+    private static final String NAME = &quot;list&quot;;
+    private static final String DESC = &quot;List the bookies, which are running as either readwrite or readonly mode.&quot;;
+
+    public ListBookiesCommand() {
+<span class="nc" id="L45">        this(new Flags());</span>
+<span class="nc" id="L46">    }</span>
+
+    public ListBookiesCommand(Flags flags) {
+<span class="nc" id="L49">        super(CliSpec.&lt;Flags&gt;newBuilder()</span>
+<span class="nc" id="L50">            .withName(NAME)</span>
+<span class="nc" id="L51">            .withDescription(DESC)</span>
+<span class="nc" id="L52">            .withFlags(flags)</span>
+<span class="nc" id="L53">            .build());</span>
+<span class="nc" id="L54">    }</span>
+
+    /**
+     * Flags for list bookies command.
+     */
+    @Accessors(fluent = true)
+<span class="nc" id="L60">    @Setter</span>
+<span class="nc" id="L61">    public static class Flags extends CliFlags {</span>
+
+<span class="nc" id="L63">        @Parameter(names = { &quot;-rw&quot;, &quot;--readwrite&quot; }, description = &quot;Print readwrite bookies&quot;)</span>
+        private boolean readwrite = false;
+<span class="nc" id="L65">        @Parameter(names = { &quot;-ro&quot;, &quot;--readonly&quot; }, description = &quot;Print readonly bookies&quot;)</span>
+        private boolean readonly = false;
+<span class="nc" id="L67">        @Parameter(names = { &quot;-a&quot;, &quot;--all&quot; }, description = &quot;Print all bookies&quot;)</span>
+        private boolean all = false;
+
+    }
+
+    @Override
+    protected void run(RegistrationClient regClient, Flags flags) throws Exception {
+<span class="nc bnc" id="L74" title="All 6 branches missed.">        if (!flags.readwrite &amp;&amp; !flags.readonly &amp;&amp; !flags.all) {</span>
+            // case: no args is provided. list all the bookies by default.
+<span class="nc" id="L76">            flags.readwrite = true;</span>
+<span class="nc" id="L77">            flags.readonly = true;</span>
+<span class="nc" id="L78">            flags.all = true;</span>
+        }
+
+<span class="nc" id="L81">        boolean hasBookies = false;</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        if (flags.readwrite) {</span>
+<span class="nc" id="L83">            Set&lt;BookieSocketAddress&gt; bookies = result(</span>
+<span class="nc" id="L84">                regClient.getWritableBookies()</span>
+<span class="nc" id="L85">            ).getValue();</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">            if (!bookies.isEmpty()) {</span>
+<span class="nc" id="L87">                System.out.println(&quot;ReadWrite Bookies :&quot;);</span>
+<span class="nc" id="L88">                printBookies(bookies);</span>
+<span class="nc" id="L89">                hasBookies = true;</span>
+            }
+        }
+<span class="nc bnc" id="L92" title="All 2 branches missed.">        if (flags.readonly) {</span>
+<span class="nc" id="L93">            Set&lt;BookieSocketAddress&gt; bookies = result(</span>
+<span class="nc" id="L94">                regClient.getReadOnlyBookies()</span>
+<span class="nc" id="L95">            ).getValue();</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">            if (!bookies.isEmpty()) {</span>
+<span class="nc" id="L97">                System.out.println(&quot;Readonly Bookies :&quot;);</span>
+<span class="nc" id="L98">                printBookies(bookies);</span>
+<span class="nc" id="L99">                hasBookies = true;</span>
+            }
+        }
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        if (flags.all) {</span>
+<span class="nc" id="L103">            Set&lt;BookieSocketAddress&gt; bookies = result(</span>
+<span class="nc" id="L104">                regClient.getAllBookies()</span>
+<span class="nc" id="L105">            ).getValue();</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">            if (!bookies.isEmpty()) {</span>
+<span class="nc" id="L107">                System.out.println(&quot;All Bookies :&quot;);</span>
+<span class="nc" id="L108">                printBookies(bookies);</span>
+<span class="nc" id="L109">                hasBookies = true;</span>
+            }
+        }
+<span class="nc bnc" id="L112" title="All 2 branches missed.">        if (!hasBookies) {</span>
+<span class="nc" id="L113">            System.err.println(&quot;No bookie exists!&quot;);</span>
+        }
+<span class="nc" id="L115">    }</span>
+
+    private static void printBookies(Collection&lt;BookieSocketAddress&gt; bookies) {
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        for (BookieSocketAddress b : bookies) {</span>
+<span class="nc" id="L119">            System.out.println(getBookieSocketAddrStringRepresentation(b));</span>
+<span class="nc" id="L120">        }</span>
+<span class="nc" id="L121">    }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>
