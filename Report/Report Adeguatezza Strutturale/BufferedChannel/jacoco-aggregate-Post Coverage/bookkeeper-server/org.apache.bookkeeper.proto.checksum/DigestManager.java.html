@@ -71,9 +71,9 @@ public abstract class DigestManager {
 	public static DigestManager instantiate(long ledgerId, byte[] passwd, DigestType digestType,
 			ByteBufAllocator allocator, boolean useV2Protocol) throws GeneralSecurityException {
 
-<span class="pc bpc" id="L74" title="2 of 5 branches missed.">		switch (digestType) {</span>
+<span class="pc bpc" id="L74" title="1 of 5 branches missed.">		switch (digestType) {</span>
 		case HMAC:
-<span class="nc" id="L76">			return new MacDigestManager(ledgerId, passwd, useV2Protocol, allocator);</span>
+<span class="fc" id="L76">			return new MacDigestManager(ledgerId, passwd, useV2Protocol, allocator);</span>
 		case CRC32:
 <span class="fc" id="L78">			return new CRC32DigestManager(ledgerId, useV2Protocol, allocator);</span>
 		case CRC32C:
@@ -104,8 +104,8 @@ public abstract class DigestManager {
 			ByteBuf data) {
 
 		ByteBuf headersBuffer;
-<span class="pc bpc" id="L107" title="1 of 2 branches missed.">		if (this.useV2Protocol) {</span>
-<span class="nc" id="L108">			headersBuffer = allocator.buffer(METADATA_LENGTH + macCodeLength);</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">		if (this.useV2Protocol) {</span>
+<span class="fc" id="L108">			headersBuffer = allocator.buffer(METADATA_LENGTH + macCodeLength);</span>
 		} else {
 <span class="fc" id="L110">			headersBuffer = Unpooled.buffer(METADATA_LENGTH + macCodeLength);</span>
 		}
@@ -133,8 +133,8 @@ public abstract class DigestManager {
 	public ByteBufList computeDigestAndPackageForSendingLac(long lac) {
 
 		ByteBuf headersBuffer;
-<span class="pc bpc" id="L136" title="1 of 2 branches missed.">		if (this.useV2Protocol) {</span>
-<span class="nc" id="L137">			headersBuffer = allocator.buffer(LAC_METADATA_LENGTH + macCodeLength);</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">		if (this.useV2Protocol) {</span>
+<span class="fc" id="L137">			headersBuffer = allocator.buffer(LAC_METADATA_LENGTH + macCodeLength);</span>
 		} else {
 <span class="fc" id="L139">			headersBuffer = Unpooled.buffer(LAC_METADATA_LENGTH + macCodeLength);</span>
 		}
@@ -158,13 +158,13 @@ public abstract class DigestManager {
 	private void verifyDigest(long entryId, ByteBuf dataReceived, boolean skipEntryIdCheck)
 			throws BKDigestMatchException {
 
-<span class="pc bpc" id="L161" title="1 of 2 branches missed.">		if ((METADATA_LENGTH + macCodeLength) &gt; dataReceived.readableBytes()) {</span>
-<span class="nc" id="L162">			logger.error(</span>
+<span class="fc bfc" id="L161" title="All 2 branches covered.">		if ((METADATA_LENGTH - macCodeLength) &gt; dataReceived.readableBytes()) {</span>
+<span class="fc" id="L162">			logger.error(</span>
 					&quot;Data received is smaller than the minimum for this digest type. &quot;
 							+ &quot; Either the packet it corrupt, or the wrong digest is configured. &quot;
 							+ &quot; Digest type: {}, Packet Length: {}&quot;,
-<span class="nc" id="L166">					this.getClass().getName(), dataReceived.readableBytes());</span>
-<span class="nc" id="L167">			throw new BKDigestMatchException();</span>
+<span class="fc" id="L166">					this.getClass().getName(), dataReceived.readableBytes());</span>
+<span class="fc" id="L167">			throw new BKDigestMatchException();</span>
 		}
 <span class="fc" id="L169">		update(dataReceived.slice(0, METADATA_LENGTH));</span>
 
@@ -175,9 +175,9 @@ public abstract class DigestManager {
 <span class="fc" id="L175">		populateValueAndReset(digest);</span>
 
 		try {
-<span class="pc bpc" id="L178" title="1 of 2 branches missed.">			if (digest.compareTo(dataReceived.slice(METADATA_LENGTH, macCodeLength)) != 0) {</span>
-<span class="nc" id="L179">				logger.error(&quot;Mac mismatch for ledger-id: &quot; + ledgerId + &quot;, entry-id: &quot; + entryId);</span>
-<span class="nc" id="L180">				throw new BKDigestMatchException();</span>
+<span class="fc bfc" id="L178" title="All 2 branches covered.">			if (digest.compareTo(dataReceived.slice(METADATA_LENGTH, macCodeLength)) != 0) {</span>
+<span class="fc" id="L179">				logger.error(&quot;Mac mismatch for ledger-id: &quot; + ledgerId + &quot;, entry-id: &quot; + entryId);</span>
+<span class="fc" id="L180">				throw new BKDigestMatchException();</span>
 			}
 		} finally {
 <span class="fc" id="L183">			digest.release();</span>
@@ -186,28 +186,28 @@ public abstract class DigestManager {
 <span class="fc" id="L186">		long actualLedgerId = dataReceived.readLong();</span>
 <span class="fc" id="L187">		long actualEntryId = dataReceived.readLong();</span>
 
-<span class="pc bpc" id="L189" title="1 of 2 branches missed.">		if (actualLedgerId != ledgerId) {</span>
-<span class="nc" id="L190">			logger.error(&quot;Ledger-id mismatch in authenticated message, expected: &quot; + ledgerId + &quot; , actual: &quot;</span>
+<span class="fc bfc" id="L189" title="All 2 branches covered.">		if (actualLedgerId != ledgerId) {</span>
+<span class="fc" id="L190">			logger.error(&quot;Ledger-id mismatch in authenticated message, expected: &quot; + ledgerId + &quot; , actual: &quot;</span>
 					+ actualLedgerId);
-<span class="nc" id="L192">			throw new BKDigestMatchException();</span>
+<span class="fc" id="L192">			throw new BKDigestMatchException();</span>
 		}
 
-<span class="pc bpc" id="L195" title="1 of 4 branches missed.">		if (!skipEntryIdCheck &amp;&amp; actualEntryId != entryId) {</span>
-<span class="nc" id="L196">			logger.error(</span>
+<span class="fc bfc" id="L195" title="All 4 branches covered.">		if (!skipEntryIdCheck &amp;&amp; actualEntryId != entryId) {</span>
+<span class="fc" id="L196">			logger.error(</span>
 					&quot;Entry-id mismatch in authenticated message, expected: &quot; + entryId + &quot; , actual: &quot; + actualEntryId);
-<span class="nc" id="L198">			throw new BKDigestMatchException();</span>
+<span class="fc" id="L198">			throw new BKDigestMatchException();</span>
 		}
 
 <span class="fc" id="L201">	}</span>
 
 	public long verifyDigestAndReturnLac(ByteBuf dataReceived) throws BKDigestMatchException {
-<span class="pc bpc" id="L204" title="1 of 2 branches missed.">		if ((LAC_METADATA_LENGTH + macCodeLength) &gt; dataReceived.readableBytes()) {</span>
-<span class="nc" id="L205">			logger.error(</span>
+<span class="fc bfc" id="L204" title="All 2 branches covered.">		if ((LAC_METADATA_LENGTH + macCodeLength) &gt; dataReceived.readableBytes()) {</span>
+<span class="fc" id="L205">			logger.error(</span>
 					&quot;Data received is smaller than the minimum for this digest type.&quot;
 							+ &quot; Either the packet it corrupt, or the wrong digest is configured. &quot;
 							+ &quot; Digest type: {}, Packet Length: {}&quot;,
-<span class="nc" id="L209">					this.getClass().getName(), dataReceived.readableBytes());</span>
-<span class="nc" id="L210">			throw new BKDigestMatchException();</span>
+<span class="fc" id="L209">					this.getClass().getName(), dataReceived.readableBytes());</span>
+<span class="fc" id="L210">			throw new BKDigestMatchException();</span>
 		}
 
 <span class="fc" id="L213">		update(dataReceived.slice(0, LAC_METADATA_LENGTH));</span>
@@ -216,9 +216,9 @@ public abstract class DigestManager {
 		try {
 <span class="fc" id="L217">			populateValueAndReset(digest);</span>
 
-<span class="pc bpc" id="L219" title="1 of 2 branches missed.">			if (digest.compareTo(dataReceived.slice(LAC_METADATA_LENGTH, macCodeLength)) != 0) {</span>
-<span class="nc" id="L220">				logger.error(&quot;Mac mismatch for ledger-id LAC: &quot; + ledgerId);</span>
-<span class="nc" id="L221">				throw new BKDigestMatchException();</span>
+<span class="fc bfc" id="L219" title="All 2 branches covered.">			if (digest.compareTo(dataReceived.slice(LAC_METADATA_LENGTH, macCodeLength)) != 0) {</span>
+<span class="fc" id="L220">				logger.error(&quot;Mac mismatch for ledger-id LAC: &quot; + ledgerId);</span>
+<span class="fc" id="L221">				throw new BKDigestMatchException();</span>
 			}
 		} finally {
 <span class="fc" id="L224">			digest.release();</span>
@@ -226,10 +226,10 @@ public abstract class DigestManager {
 
 <span class="fc" id="L227">		long actualLedgerId = dataReceived.readLong();</span>
 <span class="fc" id="L228">		long lac = dataReceived.readLong();</span>
-<span class="pc bpc" id="L229" title="1 of 2 branches missed.">		if (actualLedgerId != ledgerId) {</span>
-<span class="nc" id="L230">			logger.error(&quot;Ledger-id mismatch in authenticated message, expected: &quot; + ledgerId + &quot; , actual: &quot;</span>
+<span class="fc bfc" id="L229" title="All 2 branches covered.">		if (actualLedgerId != ledgerId) {</span>
+<span class="fc" id="L230">			logger.error(&quot;Ledger-id mismatch in authenticated message, expected: &quot; + ledgerId + &quot; , actual: &quot;</span>
 					+ actualLedgerId);
-<span class="nc" id="L232">			throw new BKDigestMatchException();</span>
+<span class="fc" id="L232">			throw new BKDigestMatchException();</span>
 		}
 <span class="fc" id="L234">		return lac;</span>
 	}

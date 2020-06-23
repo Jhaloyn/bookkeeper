@@ -30,7 +30,7 @@ import java.util.function.Function;
 @SuppressWarnings(&quot;serial&quot;)
 public abstract class BKException extends org.apache.bookkeeper.client.api.BKException {
 
-<span class="nc" id="L33">    public static final Function&lt;Throwable, BKException&gt; HANDLER = cause -&gt; {</span>
+<span class="fc" id="L33">    public static final Function&lt;Throwable, BKException&gt; HANDLER = cause -&gt; {</span>
 <span class="nc bnc" id="L34" title="All 2 branches missed.">        if (cause == null) {</span>
 <span class="nc" id="L35">            return null;</span>
         }
@@ -44,8 +44,8 @@ public abstract class BKException extends org.apache.bookkeeper.client.api.BKExc
     };
 
     BKException(int code) {
-<span class="nc" id="L47">        super(code);</span>
-<span class="nc" id="L48">    }</span>
+<span class="fc" id="L47">        super(code);</span>
+<span class="fc" id="L48">    }</span>
 
     BKException(int code, Throwable cause) {
 <span class="nc" id="L51">        super(code, cause);</span>
@@ -197,8 +197,8 @@ public abstract class BKException extends org.apache.bookkeeper.client.api.BKExc
      */
     public static class BKDigestMatchException extends BKException {
         public BKDigestMatchException() {
-<span class="nc" id="L200">            super(BKException.Code.DigestMatchException);</span>
-<span class="nc" id="L201">        }</span>
+<span class="fc" id="L200">            super(BKException.Code.DigestMatchException);</span>
+<span class="fc" id="L201">        }</span>
     }
 
     /**

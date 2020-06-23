@@ -42,7 +42,7 @@ import io.netty.buffer.ByteBufAllocator;
  * should not rely on it directly.
  */
 public class MacDigestManager extends DigestManager {
-<span class="nc" id="L45">	private static final Logger LOG = LoggerFactory.getLogger(MacDigestManager.class);</span>
+<span class="fc" id="L45">	private static final Logger LOG = LoggerFactory.getLogger(MacDigestManager.class);</span>
 
 	public static final String DIGEST_ALGORITHM = &quot;SHA-1&quot;;
 	public static final String KEY_ALGORITHM = &quot;HmacSHA1&quot;;
@@ -54,21 +54,21 @@ public class MacDigestManager extends DigestManager {
 	static final byte[] EMPTY_LEDGER_KEY;
 	static {
 		try {
-<span class="nc" id="L57">			EMPTY_LEDGER_KEY = MacDigestManager.genDigest(&quot;ledger&quot;, new byte[0]);</span>
+<span class="fc" id="L57">			EMPTY_LEDGER_KEY = MacDigestManager.genDigest(&quot;ledger&quot;, new byte[0]);</span>
 <span class="nc" id="L58">		} catch (NoSuchAlgorithmException e) {</span>
 <span class="nc" id="L59">			throw new RuntimeException(e);</span>
-<span class="nc" id="L60">		}</span>
-<span class="nc" id="L61">	}</span>
+<span class="fc" id="L60">		}</span>
+<span class="fc" id="L61">	}</span>
 
-<span class="nc" id="L63">	private final ThreadLocal&lt;Mac&gt; mac = new ThreadLocal&lt;Mac&gt;() {</span>
+<span class="fc" id="L63">	private final ThreadLocal&lt;Mac&gt; mac = new ThreadLocal&lt;Mac&gt;() {</span>
 		@Override
 		protected Mac initialValue() {
 			try {
-<span class="nc" id="L67">				byte[] macKey = genDigest(&quot;mac&quot;, passwd);</span>
-<span class="nc" id="L68">				SecretKeySpec keySpec = new SecretKeySpec(macKey, KEY_ALGORITHM);</span>
-<span class="nc" id="L69">				Mac mac = Mac.getInstance(KEY_ALGORITHM);</span>
-<span class="nc" id="L70">				mac.init(keySpec);</span>
-<span class="nc" id="L71">				return mac;</span>
+<span class="fc" id="L67">				byte[] macKey = genDigest(&quot;mac&quot;, passwd);</span>
+<span class="fc" id="L68">				SecretKeySpec keySpec = new SecretKeySpec(macKey, KEY_ALGORITHM);</span>
+<span class="fc" id="L69">				Mac mac = Mac.getInstance(KEY_ALGORITHM);</span>
+<span class="fc" id="L70">				mac.init(keySpec);</span>
+<span class="fc" id="L71">				return mac;</span>
 <span class="nc" id="L72">			} catch (GeneralSecurityException gse) {</span>
 <span class="nc" id="L73">				LOG.error(&quot;Couldn't not get mac instance&quot;, gse);</span>
 <span class="nc" id="L74">				return null;</span>
@@ -78,31 +78,31 @@ public class MacDigestManager extends DigestManager {
 
 	public MacDigestManager(long ledgerId, byte[] passwd, boolean useV2Protocol, ByteBufAllocator allocator)
 			throws GeneralSecurityException {
-<span class="nc" id="L81">		super(ledgerId, useV2Protocol, allocator);</span>
-<span class="nc" id="L82">		this.passwd = Arrays.copyOf(passwd, passwd.length);</span>
-<span class="nc" id="L83">	}</span>
+<span class="fc" id="L81">		super(ledgerId, useV2Protocol, allocator);</span>
+<span class="fc" id="L82">		this.passwd = Arrays.copyOf(passwd, passwd.length);</span>
+<span class="fc" id="L83">	}</span>
 
 	public static byte[] genDigest(String pad, byte[] passwd) throws NoSuchAlgorithmException {
-<span class="nc" id="L86">		MessageDigest digest = MessageDigest.getInstance(DIGEST_ALGORITHM);</span>
-<span class="nc" id="L87">		digest.update(pad.getBytes(UTF_8));</span>
-<span class="nc" id="L88">		digest.update(passwd);</span>
-<span class="nc" id="L89">		return digest.digest();</span>
+<span class="fc" id="L86">		MessageDigest digest = MessageDigest.getInstance(DIGEST_ALGORITHM);</span>
+<span class="fc" id="L87">		digest.update(pad.getBytes(UTF_8));</span>
+<span class="fc" id="L88">		digest.update(passwd);</span>
+<span class="fc" id="L89">		return digest.digest();</span>
 	}
 
 	@Override
 	int getMacCodeLength() {
-<span class="nc" id="L94">		return MAC_CODE_LENGTH;</span>
+<span class="fc" id="L94">		return MAC_CODE_LENGTH;</span>
 	}
 
 	@Override
 	void populateValueAndReset(ByteBuf buffer) {
-<span class="nc" id="L99">		buffer.writeBytes(mac.get().doFinal());</span>
-<span class="nc" id="L100">	}</span>
+<span class="fc" id="L99">		buffer.writeBytes(mac.get().doFinal());</span>
+<span class="fc" id="L100">	}</span>
 
 	@Override
 	void update(ByteBuf data) {
-<span class="nc" id="L104">		mac.get().update(data.nioBuffer());</span>
-<span class="nc" id="L105">	}</span>
+<span class="fc" id="L104">		mac.get().update(data.nioBuffer());</span>
+<span class="fc" id="L105">	}</span>
 
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

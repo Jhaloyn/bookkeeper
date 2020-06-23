@@ -73,16 +73,16 @@ public class TestBufferedChannel {
 				// ------------------------------Coverage strutturale---------------------------
 				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
 				{ 10, createByteBufDataEmpty(10), createByteBufData(5), 0, 5, 0, 5, 5 }, // linee 122,127, da 254
-//
-//				// -------------------------Mutation coverage---------------------------------
-//				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 0, 2, 5 }, // mutazione linea 116
-//				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 1, 0, 5 }, // mutazioni linee 129,130
-//				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 7, 0, 5 }, // mutazione linea 129
-//				// mutazioni linee 247, 248
-//				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 5, 5, 0, 2, new IOException("Read past EOF") },
-//				// mutazione linea 290
-//				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 3, 5, 0, 2, new IOException("Read past EOF") },
-//				{ 5, createByteBufDataEmpty(10), createByteBufData(4), 1, 3, 0, 4, 3 }, // mutazione linea 287
+
+				// -------------------------Mutation coverage---------------------------------
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 0, 2, 5 }, // mutazione linea 116
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 1, 0, 5 }, // mutazioni linee 129,130
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 7, 0, 5 }, // mutazione linea 129
+				// mutazioni linee 247, 248
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 5, 5, 0, 2, new IOException("Read past EOF") },
+				// mutazione linea 290
+				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 3, 5, 0, 2, new IOException("Read past EOF") },
+				{ 5, createByteBufDataEmpty(10), createByteBufData(4), 1, 3, 0, 4, 3 }, // mutazione linea 265
 
 				// LOOP test per //mutante 266
 				// { 7, createByteBufDataEmpty(5), createByteBufData(10), 0, 10, 0, 3, 10 }
