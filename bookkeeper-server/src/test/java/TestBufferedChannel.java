@@ -60,18 +60,19 @@ public class TestBufferedChannel {
 
 				// ---------------Category Partition e Boundary Values----------
 
-//				// length < buffer_capacity-pos, length<dst, pos<buffer_capacity
-//				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 0, 1, 0, 0 },
-//				// length > buffer_capacity - pos, length > dst, pos=buffer_capacity
-//				{ 0, createByteBufDataEmpty(0), createByteBufData(0), 0, 1, 1, 0, new IOException("Read past EOF") },
-//				// length = buffer_capacity - pos, length = dst, pos < buffer_capacity
-//				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 1, 0, 0, 1 },
-//				// pos > buffer_capacity
-//				{ 2, null, null, 2, 1, 0, new NullPointerException(), new NullPointerException() },
+				// length < buffer_capacity-pos, length<dst, pos<buffer_capacity
+				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 0, 0, 0, 0 },
+				// length > buffer_capacity - pos, length > dst, pos=buffer_capacity
+				// coverage linea 129 con unpersistedBytesBound=1
+				{ 0, createByteBufDataEmpty(0), createByteBufData(0), 0, 1, 1, 0, new IOException("Read past EOF") },
+				// length = buffer_capacity - pos, length = dst, pos < buffer_capacity
+				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 1, 0, 0, 1 },
+				// pos > buffer_capacity
+				{ 2, null, null, 3, 1, 0, new NullPointerException(), new NullPointerException() },
 
 				// ------------------------------Coverage strutturale---------------------------
-//				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
-//				{ 10, createByteBufDataEmpty(10), createByteBufData(5), 0, 5, 0, 5, 5 }, // linee 122,127, da 258
+				{ 5, createByteBufDataEmpty(10), createByteBufData(10), 0, 5, 1, 0, 5 }, // da linea 128
+				{ 10, createByteBufDataEmpty(10), createByteBufData(5), 0, 5, 0, 5, 5 }, // linee 122,127, da 254
 //
 //				// -------------------------Mutation coverage---------------------------------
 //				{ 5, createByteBufDataEmpty(10), createByteBufData(7), 0, 5, 0, 2, 5 }, // mutazione linea 116
@@ -86,14 +87,7 @@ public class TestBufferedChannel {
 				// LOOP test per //mutante 266
 				// { 7, createByteBufDataEmpty(5), createByteBufData(10), 0, 10, 0, 3, 10 }
 
-				// length < buffer_capacity-pos, length<dst, pos<buffer_capacity
-				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 0, 0, 0, 0 },
-				// length > buffer_capacity - pos, length > dst, pos=buffer_capacity
-				{ 0, createByteBufDataEmpty(0), createByteBufData(0), 0, 1, 0, 0, new IOException("Read past EOF") },
-				// length = buffer_capacity - pos, length = dst, pos < buffer_capacity
-				{ 1, createByteBufDataEmpty(1), createByteBufData(1), 0, 1, 0, 0, 1 },
-				// pos > buffer_capacity
-				{ 2, null, null, 3, 1, 0, new NullPointerException(), new NullPointerException() }, };
+		};
 
 		return Arrays.asList(data);
 
