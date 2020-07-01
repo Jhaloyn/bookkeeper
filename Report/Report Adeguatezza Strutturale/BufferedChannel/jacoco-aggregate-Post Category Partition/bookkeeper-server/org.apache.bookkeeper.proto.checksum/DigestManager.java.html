@@ -158,7 +158,7 @@ public abstract class DigestManager {
 	private void verifyDigest(long entryId, ByteBuf dataReceived, boolean skipEntryIdCheck)
 			throws BKDigestMatchException {
 
-<span class="fc bfc" id="L161" title="All 2 branches covered.">		if ((METADATA_LENGTH - macCodeLength) &gt; dataReceived.readableBytes()) {</span>
+<span class="fc bfc" id="L161" title="All 2 branches covered.">		if ((METADATA_LENGTH + macCodeLength) &gt; dataReceived.readableBytes()) {</span>
 <span class="fc" id="L162">			logger.error(</span>
 					&quot;Data received is smaller than the minimum for this digest type. &quot;
 							+ &quot; Either the packet it corrupt, or the wrong digest is configured. &quot;

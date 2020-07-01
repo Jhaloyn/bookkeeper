@@ -385,7 +385,7 @@ Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,LedgerCache.NoIndex
 Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,EntryLogMetadata,122,0,4,0,28,0,14,0,12,0
 Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,EntryLogger.EntryLookupException.InvalidEntryLengthException,27,0,0,0,6,0,1,0,1,0
 Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,Journal.BufferedChannelBuilder,10,0,0,0,2,0,2,0,2,0
-Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,BufferedChannel,121,273,19,19,32,62,23,11,8,7
+Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,BufferedChannel,114,280,19,19,30,64,22,12,7,8
 Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,GarbageCollectorThread.new AbstractLogCompactor.LogRemovalListener() {...},11,0,0,0,3,0,2,0,2,0
 Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,BufferedChannelBase.BufferedChannelClosedException,4,0,0,0,2,0,1,0,1,0
 Test-coverage/bookkeeper-server,org.apache.bookkeeper.bookie,BookieException.DiskPartitionDuplicationException,14,0,0,0,6,0,3,0,3,0
