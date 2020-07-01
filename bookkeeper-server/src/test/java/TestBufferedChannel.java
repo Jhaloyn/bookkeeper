@@ -86,7 +86,6 @@ public class TestBufferedChannel {
 
 				// LOOP test per //mutante 266
 				// { 7, createByteBufDataEmpty(5), createByteBufData(10), 0, 10, 0, 3, 10 }
-
 		};
 
 		return Arrays.asList(data);
