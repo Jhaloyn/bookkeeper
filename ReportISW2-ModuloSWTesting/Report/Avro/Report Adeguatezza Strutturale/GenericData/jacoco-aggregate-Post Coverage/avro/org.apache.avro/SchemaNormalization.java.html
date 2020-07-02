@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>SchemaNormalization.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro</a> &gt; <span class="el_source">SchemaNormalization.java</span></div><h1>SchemaNormalization.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro;
+
+import java.util.Map;
+import java.util.HashMap;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
+/**
+ * Collection of static methods for generating the canonical form of schemas
+ * (see {@link #toParsingForm}) -- and fingerprints of canonical forms
+ * ({@link #fingerprint}).
+ */
+public class SchemaNormalization {
+
+  private SchemaNormalization() {
+  }
+
+  /**
+   * Returns &quot;Parsing Canonical Form&quot; of a schema as defined by Avro spec.
+   */
+  public static String toParsingForm(Schema s) {
+    try {
+<span class="nc" id="L42">      Map&lt;String, String&gt; env = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L43">      return build(env, s, new StringBuilder()).toString();</span>
+<span class="nc" id="L44">    } catch (IOException e) {</span>
+      // Shouldn't happen, b/c StringBuilder can't throw IOException
+<span class="nc" id="L46">      throw new RuntimeException(e);</span>
+    }
+  }
+
+  /**
+   * Returns a fingerprint of a string of bytes. This string is presumed to
+   * contain a canonical form of a schema. The algorithm used to compute the
+   * fingerprint is selected by the argument &lt;i&gt;fpName&lt;/i&gt;. If &lt;i&gt;fpName&lt;/i&gt;
+   * equals the string &lt;code&gt;&quot;CRC-64-AVRO&quot;&lt;/code&gt;, then the result of
+   * {@link #fingerprint64} is returned in little-endian format. Otherwise,
+   * &lt;i&gt;fpName&lt;/i&gt; is used as an algorithm name for
+   * {@link MessageDigest#getInstance(String)}, which will throw
+   * &lt;code&gt;NoSuchAlgorithmException&lt;/code&gt; if it doesn't recognize the name.
+   * &lt;p&gt;
+   * Recommended Avro practice dictates that &lt;code&gt;&quot;CRC-64-AVRO&quot;&lt;/code&gt; is used
+   * for 64-bit fingerprints, &lt;code&gt;&quot;MD5&quot;&lt;/code&gt; is used for 128-bit fingerprints,
+   * and &lt;code&gt;&quot;SHA-256&quot;&lt;/code&gt; is used for 256-bit fingerprints.
+   */
+  public static byte[] fingerprint(String fpName, byte[] data) throws NoSuchAlgorithmException {
+<span class="nc bnc" id="L65" title="All 2 branches missed.">    if (fpName.equals(&quot;CRC-64-AVRO&quot;)) {</span>
+<span class="nc" id="L66">      long fp = fingerprint64(data);</span>
+<span class="nc" id="L67">      byte[] result = new byte[8];</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">      for (int i = 0; i &lt; 8; i++) {</span>
+<span class="nc" id="L69">        result[i] = (byte) fp;</span>
+<span class="nc" id="L70">        fp &gt;&gt;= 8;</span>
+      }
+<span class="nc" id="L72">      return result;</span>
+    }
+
+<span class="nc" id="L75">    MessageDigest md = MessageDigest.getInstance(fpName);</span>
+<span class="nc" id="L76">    return md.digest(data);</span>
+  }
+
+  /**
+   * Returns the 64-bit Rabin Fingerprint (as recommended in the Avro spec) of a
+   * byte string.
+   */
+  public static long fingerprint64(byte[] data) {
+<span class="nc" id="L84">    long result = EMPTY64;</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">    for (byte b : data)</span>
+<span class="nc" id="L86">      result = (result &gt;&gt;&gt; 8) ^ FP64.FP_TABLE[(int) (result ^ b) &amp; 0xff];</span>
+<span class="nc" id="L87">    return result;</span>
+  }
+
+  /**
+   * Returns {@link #fingerprint} applied to the parsing canonical form of the
+   * supplied schema.
+   */
+  public static byte[] parsingFingerprint(String fpName, Schema s) throws NoSuchAlgorithmException {
+<span class="nc" id="L95">    return fingerprint(fpName, toParsingForm(s).getBytes(StandardCharsets.UTF_8));</span>
+  }
+
+  /**
+   * Returns {@link #fingerprint64} applied to the parsing canonical form of the
+   * supplied schema.
+   */
+  public static long parsingFingerprint64(Schema s) {
+<span class="nc" id="L103">    return fingerprint64(toParsingForm(s).getBytes(StandardCharsets.UTF_8));</span>
+  }
+
+  private static Appendable build(Map&lt;String, String&gt; env, Schema s, Appendable o) throws IOException {
+<span class="nc" id="L107">    boolean firstTime = true;</span>
+<span class="nc" id="L108">    Schema.Type st = s.getType();</span>
+<span class="nc bnc" id="L109" title="All 4 branches missed.">    switch (st) {</span>
+    default: // boolean, bytes, double, float, int, long, null, string
+<span class="nc" id="L111">      return o.append('&quot;').append(st.getName()).append('&quot;');</span>
+
+    case UNION:
+<span class="nc" id="L114">      o.append('[');</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">      for (Schema b : s.getTypes()) {</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        if (!firstTime)</span>
+<span class="nc" id="L117">          o.append(',');</span>
+        else
+<span class="nc" id="L119">          firstTime = false;</span>
+<span class="nc" id="L120">        build(env, b, o);</span>
+<span class="nc" id="L121">      }</span>
+<span class="nc" id="L122">      return o.append(']');</span>
+
+    case ARRAY:
+    case MAP:
+<span class="nc" id="L126">      o.append(&quot;{\&quot;type\&quot;:\&quot;&quot;).append(st.getName()).append(&quot;\&quot;&quot;);</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">      if (st == Schema.Type.ARRAY)</span>
+<span class="nc" id="L128">        build(env, s.getElementType(), o.append(&quot;,\&quot;items\&quot;:&quot;));</span>
+      else
+<span class="nc" id="L130">        build(env, s.getValueType(), o.append(&quot;,\&quot;values\&quot;:&quot;));</span>
+<span class="nc" id="L131">      return o.append(&quot;}&quot;);</span>
+
+    case ENUM:
+    case FIXED:
+    case RECORD:
+<span class="nc" id="L136">      String name = s.getFullName();</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">      if (env.get(name) != null)</span>
+<span class="nc" id="L138">        return o.append(env.get(name));</span>
+<span class="nc" id="L139">      String qname = &quot;\&quot;&quot; + name + &quot;\&quot;&quot;;</span>
+<span class="nc" id="L140">      env.put(name, qname);</span>
+<span class="nc" id="L141">      o.append(&quot;{\&quot;name\&quot;:&quot;).append(qname);</span>
+<span class="nc" id="L142">      o.append(&quot;,\&quot;type\&quot;:\&quot;&quot;).append(st.getName()).append(&quot;\&quot;&quot;);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">      if (st == Schema.Type.ENUM) {</span>
+<span class="nc" id="L144">        o.append(&quot;,\&quot;symbols\&quot;:[&quot;);</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        for (String enumSymbol : s.getEnumSymbols()) {</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">          if (!firstTime)</span>
+<span class="nc" id="L147">            o.append(',');</span>
+          else
+<span class="nc" id="L149">            firstTime = false;</span>
+<span class="nc" id="L150">          o.append('&quot;').append(enumSymbol).append('&quot;');</span>
+<span class="nc" id="L151">        }</span>
+<span class="nc" id="L152">        o.append(&quot;]&quot;);</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">      } else if (st == Schema.Type.FIXED) {</span>
+<span class="nc" id="L154">        o.append(&quot;,\&quot;size\&quot;:&quot;).append(Integer.toString(s.getFixedSize()));</span>
+      } else { // st == Schema.Type.RECORD
+<span class="nc" id="L156">        o.append(&quot;,\&quot;fields\&quot;:[&quot;);</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        for (Schema.Field f : s.getFields()) {</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">          if (!firstTime)</span>
+<span class="nc" id="L159">            o.append(',');</span>
+          else
+<span class="nc" id="L161">            firstTime = false;</span>
+<span class="nc" id="L162">          o.append(&quot;{\&quot;name\&quot;:\&quot;&quot;).append(f.name()).append(&quot;\&quot;&quot;);</span>
+<span class="nc" id="L163">          build(env, f.schema(), o.append(&quot;,\&quot;type\&quot;:&quot;)).append(&quot;}&quot;);</span>
+<span class="nc" id="L164">        }</span>
+<span class="nc" id="L165">        o.append(&quot;]&quot;);</span>
+      }
+<span class="nc" id="L167">      return o.append(&quot;}&quot;);</span>
+    }
+  }
+
+  final static long EMPTY64 = 0xc15d213aa4d7a795L;
+
+  /* An inner class ensures that FP_TABLE initialized only when needed. */
+  private static class FP64 {
+<span class="nc" id="L175">    private static final long[] FP_TABLE = new long[256];</span>
+    static {
+<span class="nc bnc" id="L177" title="All 2 branches missed.">      for (int i = 0; i &lt; 256; i++) {</span>
+<span class="nc" id="L178">        long fp = i;</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        for (int j = 0; j &lt; 8; j++) {</span>
+<span class="nc" id="L180">          long mask = -(fp &amp; 1L);</span>
+<span class="nc" id="L181">          fp = (fp &gt;&gt;&gt; 1) ^ (EMPTY64 &amp; mask);</span>
+        }
+<span class="nc" id="L183">        FP_TABLE[i] = fp;</span>
+      }
+<span class="nc" id="L185">    }</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

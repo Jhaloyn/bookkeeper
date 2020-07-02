@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DataFileReader12.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.file</a> &gt; <span class="el_source">DataFileReader12.java</span></div><h1>DataFileReader12.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.file;
+
+import java.io.IOException;
+import java.io.Closeable;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+
+import org.apache.avro.InvalidAvroMagicException;
+import org.apache.avro.Schema;
+import org.apache.avro.UnknownAvroCodecException;
+import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.BinaryDecoder;
+
+/** Read files written by Avro version 1.2. */
+public class DataFileReader12&lt;D&gt; implements FileReader&lt;D&gt;, Closeable {
+  private static final byte VERSION = 0;
+<span class="nc" id="L39">  static final byte[] MAGIC = new byte[] { (byte) 'O', (byte) 'b', (byte) 'j', VERSION };</span>
+  private static final long FOOTER_BLOCK = -1;
+  private static final int SYNC_SIZE = 16;
+  private static final String SCHEMA = &quot;schema&quot;;
+  private static final String SYNC = &quot;sync&quot;;
+  private static final String CODEC = &quot;codec&quot;;
+  private static final String NULL_CODEC = &quot;null&quot;;
+
+  private Schema schema;
+  private DatumReader&lt;D&gt; reader;
+  private DataFileReader.SeekableInputStream in;
+  private BinaryDecoder vin;
+
+<span class="nc" id="L52">  private Map&lt;String, byte[]&gt; meta = new HashMap&lt;&gt;();</span>
+
+  private long blockCount; // # entries in block
+  private long blockStart;
+<span class="nc" id="L56">  private byte[] sync = new byte[SYNC_SIZE];</span>
+<span class="nc" id="L57">  private byte[] syncBuffer = new byte[SYNC_SIZE];</span>
+
+  /** Construct a reader for a file. */
+<span class="nc" id="L60">  public DataFileReader12(SeekableInput sin, DatumReader&lt;D&gt; reader) throws IOException {</span>
+<span class="nc" id="L61">    this.in = new DataFileReader.SeekableInputStream(sin);</span>
+
+<span class="nc" id="L63">    byte[] magic = new byte[4];</span>
+<span class="nc" id="L64">    in.read(magic);</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">    if (!Arrays.equals(MAGIC, magic))</span>
+<span class="nc" id="L66">      throw new InvalidAvroMagicException(&quot;Not a data file.&quot;);</span>
+
+<span class="nc" id="L68">    long length = in.length();</span>
+<span class="nc" id="L69">    in.seek(length - 4);</span>
+<span class="nc" id="L70">    int footerSize = (in.read() &lt;&lt; 24) + (in.read() &lt;&lt; 16) + (in.read() &lt;&lt; 8) + in.read();</span>
+<span class="nc" id="L71">    seek(length - footerSize);</span>
+<span class="nc" id="L72">    long l = vin.readMapStart();</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    if (l &gt; 0) {</span>
+      do {
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        for (long i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L76">          String key = vin.readString(null).toString();</span>
+<span class="nc" id="L77">          ByteBuffer value = vin.readBytes(null);</span>
+<span class="nc" id="L78">          byte[] bb = new byte[value.remaining()];</span>
+<span class="nc" id="L79">          value.get(bb);</span>
+<span class="nc" id="L80">          meta.put(key, bb);</span>
+        }
+<span class="nc bnc" id="L82" title="All 2 branches missed.">      } while ((l = vin.mapNext()) != 0);</span>
+    }
+
+<span class="nc" id="L85">    this.sync = getMeta(SYNC);</span>
+<span class="nc" id="L86">    String codec = getMetaString(CODEC);</span>
+<span class="nc bnc" id="L87" title="All 4 branches missed.">    if (codec != null &amp;&amp; !codec.equals(NULL_CODEC)) {</span>
+<span class="nc" id="L88">      throw new UnknownAvroCodecException(&quot;Unknown codec: &quot; + codec);</span>
+    }
+<span class="nc" id="L90">    this.schema = new Schema.Parser().parse(getMetaString(SCHEMA));</span>
+<span class="nc" id="L91">    this.reader = reader;</span>
+
+<span class="nc" id="L93">    reader.setSchema(schema);</span>
+
+<span class="nc" id="L95">    seek(MAGIC.length); // seek to start</span>
+<span class="nc" id="L96">  }</span>
+
+  /** Return the value of a metadata property. */
+  public synchronized byte[] getMeta(String key) {
+<span class="nc" id="L100">    return meta.get(key);</span>
+  }
+
+  /** Return the value of a metadata property. */
+  public synchronized String getMetaString(String key) {
+<span class="nc" id="L105">    byte[] value = getMeta(key);</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L107">      return null;</span>
+    }
+<span class="nc" id="L109">    return new String(value, StandardCharsets.UTF_8);</span>
+  }
+
+  /** Return the value of a metadata property. */
+  public synchronized long getMetaLong(String key) {
+<span class="nc" id="L114">    return Long.parseLong(getMetaString(key));</span>
+  }
+
+  /** Return the schema used in this file. */
+  @Override
+  public Schema getSchema() {
+<span class="nc" id="L120">    return schema;</span>
+  }
+
+  // Iterator and Iterable implementation
+  private D peek;
+
+  @Override
+  public Iterator&lt;D&gt; iterator() {
+<span class="nc" id="L128">    return this;</span>
+  }
+
+  @Override
+  public boolean hasNext() {
+<span class="nc bnc" id="L133" title="All 4 branches missed.">    if (peek != null || blockCount != 0)</span>
+<span class="nc" id="L134">      return true;</span>
+<span class="nc" id="L135">    this.peek = next();</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">    return peek != null;</span>
+  }
+
+  @Override
+  public D next() {
+<span class="nc bnc" id="L141" title="All 2 branches missed.">    if (peek != null) {</span>
+<span class="nc" id="L142">      D result = peek;</span>
+<span class="nc" id="L143">      peek = null;</span>
+<span class="nc" id="L144">      return result;</span>
+    }
+    try {
+<span class="nc" id="L147">      return next(null);</span>
+<span class="nc" id="L148">    } catch (IOException e) {</span>
+<span class="nc" id="L149">      throw new RuntimeException(e);</span>
+    }
+  }
+
+  @Override
+  public void remove() {
+<span class="nc" id="L155">    throw new UnsupportedOperationException();</span>
+  }
+
+  /** Return the next datum in the file. */
+  @Override
+  public synchronized D next(D reuse) throws IOException {
+<span class="nc bnc" id="L161" title="All 2 branches missed.">    while (blockCount == 0) { // at start of block</span>
+
+<span class="nc bnc" id="L163" title="All 2 branches missed.">      if (in.tell() == in.length()) // at eof</span>
+<span class="nc" id="L164">        return null;</span>
+
+<span class="nc" id="L166">      skipSync(); // skip a sync</span>
+
+<span class="nc" id="L168">      blockCount = vin.readLong(); // read blockCount</span>
+
+<span class="nc bnc" id="L170" title="All 2 branches missed.">      if (blockCount == FOOTER_BLOCK) {</span>
+<span class="nc" id="L171">        seek(vin.readLong() + in.tell()); // skip a footer</span>
+      }
+    }
+<span class="nc" id="L174">    blockCount--;</span>
+<span class="nc" id="L175">    return reader.read(reuse, vin);</span>
+  }
+
+  private void skipSync() throws IOException {
+<span class="nc" id="L179">    vin.readFixed(syncBuffer);</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">    if (!Arrays.equals(syncBuffer, sync))</span>
+<span class="nc" id="L181">      throw new IOException(&quot;Invalid sync!&quot;);</span>
+<span class="nc" id="L182">  }</span>
+
+  /**
+   * Move to the specified synchronization point, as returned by
+   * {@link DataFileWriter#sync()}.
+   */
+  public synchronized void seek(long position) throws IOException {
+<span class="nc" id="L189">    in.seek(position);</span>
+<span class="nc" id="L190">    blockCount = 0;</span>
+<span class="nc" id="L191">    blockStart = position;</span>
+<span class="nc" id="L192">    vin = DecoderFactory.get().binaryDecoder(in, vin);</span>
+<span class="nc" id="L193">  }</span>
+
+  /** Move to the next synchronization point after a position. */
+  @Override
+  public synchronized void sync(long position) throws IOException {
+<span class="nc bnc" id="L198" title="All 2 branches missed.">    if (in.tell() + SYNC_SIZE &gt;= in.length()) {</span>
+<span class="nc" id="L199">      seek(in.length());</span>
+<span class="nc" id="L200">      return;</span>
+    }
+<span class="nc" id="L202">    in.seek(position);</span>
+<span class="nc" id="L203">    vin.readFixed(syncBuffer);</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">    for (int i = 0; in.tell() &lt; in.length(); i++) {</span>
+<span class="nc" id="L205">      int j = 0;</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">      for (; j &lt; sync.length; j++) {</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        if (sync[j] != syncBuffer[(i + j) % sync.length])</span>
+<span class="nc" id="L208">          break;</span>
+      }
+<span class="nc bnc" id="L210" title="All 2 branches missed.">      if (j == sync.length) { // position before sync</span>
+<span class="nc" id="L211">        seek(in.tell() - SYNC_SIZE);</span>
+<span class="nc" id="L212">        return;</span>
+      }
+<span class="nc" id="L214">      syncBuffer[i % sync.length] = (byte) in.read();</span>
+    }
+<span class="nc" id="L216">    seek(in.length());</span>
+<span class="nc" id="L217">  }</span>
+
+  /** Return true if past the next synchronization point after a position. */
+  @Override
+  public boolean pastSync(long position) throws IOException {
+<span class="nc bnc" id="L222" title="All 4 branches missed.">    return ((blockStart &gt;= position + SYNC_SIZE) || (blockStart &gt;= in.length()));</span>
+  }
+
+  /** Return the current position in the input. */
+  @Override
+  public long tell() throws IOException {
+<span class="nc" id="L228">    return in.tell();</span>
+  }
+
+  /** Close this reader. */
+  @Override
+  public synchronized void close() throws IOException {
+<span class="nc" id="L234">    in.close();</span>
+<span class="nc" id="L235">  }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

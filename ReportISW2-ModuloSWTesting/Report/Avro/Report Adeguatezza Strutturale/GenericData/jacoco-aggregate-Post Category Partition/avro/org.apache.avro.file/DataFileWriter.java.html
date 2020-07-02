@@ -1,0 +1,514 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DataFileWriter.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.file</a> &gt; <span class="el_source">DataFileWriter.java</span></div><h1>DataFileWriter.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.file;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
+import java.io.File;
+import java.io.FilterOutputStream;
+import java.io.Flushable;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+import org.apache.avro.AvroRuntimeException;
+import org.apache.avro.Schema;
+import org.apache.avro.file.DataFileStream.DataBlock;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.EncoderFactory;
+import org.apache.commons.compress.utils.IOUtils;
+
+/**
+ * Stores in a file a sequence of data conforming to a schema. The schema is
+ * stored in the file with the data. Each datum in a file is of the same schema.
+ * Data is written with a {@link DatumWriter}. Data is grouped into
+ * &lt;i&gt;blocks&lt;/i&gt;. A synchronization marker is written between blocks, so that
+ * files may be split. Blocks may be compressed. Extensible metadata is stored
+ * at the end of the file. Files may be appended to.
+ * 
+ * @see DataFileReader
+ */
+public class DataFileWriter&lt;D&gt; implements Closeable, Flushable {
+  private Schema schema;
+  private DatumWriter&lt;D&gt; dout;
+
+  private OutputStream underlyingStream;
+
+  private BufferedFileOutputStream out;
+  private BinaryEncoder vout;
+
+<span class="nc" id="L66">  private final Map&lt;String, byte[]&gt; meta = new HashMap&lt;&gt;();</span>
+
+  private long blockCount; // # entries in current block
+
+  private NonCopyingByteArrayOutputStream buffer;
+  private BinaryEncoder bufOut;
+
+  private byte[] sync; // 16 random bytes
+<span class="nc" id="L74">  private int syncInterval = DataFileConstants.DEFAULT_SYNC_INTERVAL;</span>
+
+  private boolean isOpen;
+  private Codec codec;
+
+<span class="nc" id="L79">  private boolean flushOnEveryBlock = true;</span>
+
+  /** Construct a writer, not yet open. */
+<span class="nc" id="L82">  public DataFileWriter(DatumWriter&lt;D&gt; dout) {</span>
+<span class="nc" id="L83">    this.dout = dout;</span>
+<span class="nc" id="L84">  }</span>
+
+  private void assertOpen() {
+<span class="nc bnc" id="L87" title="All 2 branches missed.">    if (!isOpen)</span>
+<span class="nc" id="L88">      throw new AvroRuntimeException(&quot;not open&quot;);</span>
+<span class="nc" id="L89">  }</span>
+
+  private void assertNotOpen() {
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    if (isOpen)</span>
+<span class="nc" id="L93">      throw new AvroRuntimeException(&quot;already open&quot;);</span>
+<span class="nc" id="L94">  }</span>
+
+  /**
+   * Configures this writer to use the given codec. May not be reset after writes
+   * have begun.
+   */
+  public DataFileWriter&lt;D&gt; setCodec(CodecFactory c) {
+<span class="nc" id="L101">    assertNotOpen();</span>
+<span class="nc" id="L102">    this.codec = c.createInstance();</span>
+<span class="nc" id="L103">    setMetaInternal(DataFileConstants.CODEC, codec.getName());</span>
+<span class="nc" id="L104">    return this;</span>
+  }
+
+  /**
+   * Set the synchronization interval for this file, in bytes. Valid values range
+   * from 32 to 2^30 Suggested values are between 2K and 2M
+   *
+   * The stream is flushed by default at the end of each synchronization interval.
+   *
+   * If {@linkplain #setFlushOnEveryBlock(boolean)} is called with param set to
+   * false, then the block may not be flushed to the stream after the sync marker
+   * is written. In this case, the {@linkplain #flush()} must be called to flush
+   * the stream.
+   *
+   * Invalid values throw IllegalArgumentException
+   *
+   * @param syncInterval the approximate number of uncompressed bytes to write in
+   *                     each block
+   * @return this DataFileWriter
+   */
+  public DataFileWriter&lt;D&gt; setSyncInterval(int syncInterval) {
+<span class="nc bnc" id="L125" title="All 4 branches missed.">    if (syncInterval &lt; 32 || syncInterval &gt; (1 &lt;&lt; 30)) {</span>
+<span class="nc" id="L126">      throw new IllegalArgumentException(&quot;Invalid syncInterval value: &quot; + syncInterval);</span>
+    }
+<span class="nc" id="L128">    this.syncInterval = syncInterval;</span>
+<span class="nc" id="L129">    return this;</span>
+  }
+
+  /** Open a new file for data matching a schema with a random sync. */
+  public DataFileWriter&lt;D&gt; create(Schema schema, File file) throws IOException {
+<span class="nc" id="L134">    SyncableFileOutputStream sfos = new SyncableFileOutputStream(file);</span>
+    try {
+<span class="nc" id="L136">      return create(schema, sfos, null);</span>
+<span class="nc" id="L137">    } catch (final Throwable e) {</span>
+<span class="nc" id="L138">      IOUtils.closeQuietly(sfos);</span>
+<span class="nc" id="L139">      throw e;</span>
+    }
+  }
+
+  /** Open a new file for data matching a schema with a random sync. */
+  public DataFileWriter&lt;D&gt; create(Schema schema, OutputStream outs) throws IOException {
+<span class="nc" id="L145">    return create(schema, outs, null);</span>
+  }
+
+  /** Open a new file for data matching a schema with an explicit sync. */
+  public DataFileWriter&lt;D&gt; create(Schema schema, OutputStream outs, byte[] sync) throws IOException {
+<span class="nc" id="L150">    assertNotOpen();</span>
+
+<span class="nc" id="L152">    this.schema = schema;</span>
+<span class="nc" id="L153">    setMetaInternal(DataFileConstants.SCHEMA, schema.toString());</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">    if (sync == null) {</span>
+<span class="nc" id="L155">      this.sync = generateSync();</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">    } else if (sync.length == 16) {</span>
+<span class="nc" id="L157">      this.sync = sync;</span>
+    } else {
+<span class="nc" id="L159">      throw new IOException(&quot;sync must be exactly 16 bytes&quot;);</span>
+    }
+
+<span class="nc" id="L162">    init(outs);</span>
+
+<span class="nc" id="L164">    vout.writeFixed(DataFileConstants.MAGIC); // write magic</span>
+
+<span class="nc" id="L166">    vout.writeMapStart(); // write metadata</span>
+<span class="nc" id="L167">    vout.setItemCount(meta.size());</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">    for (Map.Entry&lt;String, byte[]&gt; entry : meta.entrySet()) {</span>
+<span class="nc" id="L169">      vout.startItem();</span>
+<span class="nc" id="L170">      vout.writeString(entry.getKey());</span>
+<span class="nc" id="L171">      vout.writeBytes(entry.getValue());</span>
+<span class="nc" id="L172">    }</span>
+<span class="nc" id="L173">    vout.writeMapEnd();</span>
+<span class="nc" id="L174">    vout.writeFixed(this.sync); // write initial sync</span>
+<span class="nc" id="L175">    vout.flush(); // vout may be buffered, flush before writing to out</span>
+<span class="nc" id="L176">    return this;</span>
+  }
+
+  /**
+   * Set whether this writer should flush the block to the stream every time a
+   * sync marker is written. By default, the writer will flush the buffer each
+   * time a sync marker is written (if the block size limit is reached or the
+   * {@linkplain #sync()} is called.
+   * 
+   * @param flushOnEveryBlock - If set to false, this writer will not flush the
+   *                          block to the stream until {@linkplain #flush()} is
+   *                          explicitly called.
+   */
+  public void setFlushOnEveryBlock(boolean flushOnEveryBlock) {
+<span class="nc" id="L190">    this.flushOnEveryBlock = flushOnEveryBlock;</span>
+<span class="nc" id="L191">  }</span>
+
+  /**
+   * @return - true if this writer flushes the block to the stream every time a
+   *         sync marker is written. Else returns false.
+   */
+  public boolean isFlushOnEveryBlock() {
+<span class="nc" id="L198">    return this.flushOnEveryBlock;</span>
+  }
+
+  /** Open a writer appending to an existing file. */
+  public DataFileWriter&lt;D&gt; appendTo(File file) throws IOException {
+<span class="nc" id="L203">    try (SeekableInput input = new SeekableFileInput(file)) {</span>
+<span class="nc" id="L204">      OutputStream output = new SyncableFileOutputStream(file, true);</span>
+<span class="nc" id="L205">      return appendTo(input, output);</span>
+    }
+    // output does not need to be closed here. It will be closed by invoking close()
+    // of this writer.
+  }
+
+  /**
+   * Open a writer appending to an existing file. &lt;strong&gt;Since 1.9.0 this method
+   * does not close in.&lt;/strong&gt;
+   * 
+   * @param in  reading the existing file.
+   * @param out positioned at the end of the existing file.
+   */
+  public DataFileWriter&lt;D&gt; appendTo(SeekableInput in, OutputStream out) throws IOException {
+<span class="nc" id="L219">    assertNotOpen();</span>
+<span class="nc" id="L220">    DataFileReader&lt;D&gt; reader = new DataFileReader&lt;&gt;(in, new GenericDatumReader&lt;&gt;());</span>
+<span class="nc" id="L221">    this.schema = reader.getSchema();</span>
+<span class="nc" id="L222">    this.sync = reader.getHeader().sync;</span>
+<span class="nc" id="L223">    this.meta.putAll(reader.getHeader().meta);</span>
+<span class="nc" id="L224">    byte[] codecBytes = this.meta.get(DataFileConstants.CODEC);</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">    if (codecBytes != null) {</span>
+<span class="nc" id="L226">      String strCodec = new String(codecBytes, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L227">      this.codec = CodecFactory.fromString(strCodec).createInstance();</span>
+<span class="nc" id="L228">    } else {</span>
+<span class="nc" id="L229">      this.codec = CodecFactory.nullCodec().createInstance();</span>
+    }
+
+<span class="nc" id="L232">    init(out);</span>
+
+<span class="nc" id="L234">    return this;</span>
+  }
+
+  private void init(OutputStream outs) throws IOException {
+<span class="nc" id="L238">    this.underlyingStream = outs;</span>
+<span class="nc" id="L239">    this.out = new BufferedFileOutputStream(outs);</span>
+<span class="nc" id="L240">    EncoderFactory efactory = new EncoderFactory();</span>
+<span class="nc" id="L241">    this.vout = efactory.binaryEncoder(out, null);</span>
+<span class="nc" id="L242">    dout.setSchema(schema);</span>
+<span class="nc" id="L243">    buffer = new NonCopyingByteArrayOutputStream(Math.min((int) (syncInterval * 1.25), Integer.MAX_VALUE / 2 - 1));</span>
+<span class="nc" id="L244">    this.bufOut = efactory.binaryEncoder(buffer, null);</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">    if (this.codec == null) {</span>
+<span class="nc" id="L246">      this.codec = CodecFactory.nullCodec().createInstance();</span>
+    }
+<span class="nc" id="L248">    this.isOpen = true;</span>
+<span class="nc" id="L249">  }</span>
+
+  private static byte[] generateSync() {
+    try {
+<span class="nc" id="L253">      MessageDigest digester = MessageDigest.getInstance(&quot;MD5&quot;);</span>
+<span class="nc" id="L254">      long time = System.currentTimeMillis();</span>
+<span class="nc" id="L255">      digester.update((UUID.randomUUID() + &quot;@&quot; + time).getBytes(UTF_8));</span>
+<span class="nc" id="L256">      return digester.digest();</span>
+<span class="nc" id="L257">    } catch (NoSuchAlgorithmException e) {</span>
+<span class="nc" id="L258">      throw new RuntimeException(e);</span>
+    }
+  }
+
+  private DataFileWriter&lt;D&gt; setMetaInternal(String key, byte[] value) {
+<span class="nc" id="L263">    assertNotOpen();</span>
+<span class="nc" id="L264">    meta.put(key, value);</span>
+<span class="nc" id="L265">    return this;</span>
+  }
+
+  private DataFileWriter&lt;D&gt; setMetaInternal(String key, String value) {
+<span class="nc" id="L269">    return setMetaInternal(key, value.getBytes(UTF_8));</span>
+  }
+
+  /** Set a metadata property. */
+  public DataFileWriter&lt;D&gt; setMeta(String key, byte[] value) {
+<span class="nc bnc" id="L274" title="All 2 branches missed.">    if (isReservedMeta(key)) {</span>
+<span class="nc" id="L275">      throw new AvroRuntimeException(&quot;Cannot set reserved meta key: &quot; + key);</span>
+    }
+<span class="nc" id="L277">    return setMetaInternal(key, value);</span>
+  }
+
+  public static boolean isReservedMeta(String key) {
+<span class="nc" id="L281">    return key.startsWith(&quot;avro.&quot;);</span>
+  }
+
+  /** Set a metadata property. */
+  public DataFileWriter&lt;D&gt; setMeta(String key, String value) {
+<span class="nc" id="L286">    return setMeta(key, value.getBytes(UTF_8));</span>
+  }
+
+  /** Set a metadata property. */
+  public DataFileWriter&lt;D&gt; setMeta(String key, long value) {
+<span class="nc" id="L291">    return setMeta(key, Long.toString(value));</span>
+  }
+
+  /**
+   * Thrown by {@link #append(Object)} when an exception occurs while writing a
+   * datum to the buffer. When this is thrown, the file is unaltered and may
+   * continue to be appended to.
+   */
+  public static class AppendWriteException extends RuntimeException {
+    public AppendWriteException(Exception e) {
+<span class="nc" id="L301">      super(e);</span>
+<span class="nc" id="L302">    }</span>
+  }
+
+  /**
+   * Append a datum to the file.
+   * 
+   * @see AppendWriteException
+   */
+  public void append(D datum) throws IOException {
+<span class="nc" id="L311">    assertOpen();</span>
+<span class="nc" id="L312">    int usedBuffer = bufferInUse();</span>
+    try {
+<span class="nc" id="L314">      dout.write(datum, bufOut);</span>
+<span class="nc" id="L315">    } catch (IOException | RuntimeException e) {</span>
+<span class="nc" id="L316">      resetBufferTo(usedBuffer);</span>
+<span class="nc" id="L317">      throw new AppendWriteException(e);</span>
+<span class="nc" id="L318">    }</span>
+<span class="nc" id="L319">    blockCount++;</span>
+<span class="nc" id="L320">    writeIfBlockFull();</span>
+<span class="nc" id="L321">  }</span>
+
+  // if there is an error encoding, flush the encoder and then
+  // reset the buffer position to contain size bytes, discarding the rest.
+  // Otherwise the file will be corrupt with a partial record.
+  private void resetBufferTo(int size) throws IOException {
+<span class="nc" id="L327">    bufOut.flush();</span>
+<span class="nc" id="L328">    byte[] data = buffer.toByteArray();</span>
+<span class="nc" id="L329">    buffer.reset();</span>
+<span class="nc" id="L330">    buffer.write(data, 0, size);</span>
+<span class="nc" id="L331">  }</span>
+
+  /**
+   * Expert: Append a pre-encoded datum to the file. No validation is performed to
+   * check that the encoding conforms to the file's schema. Appending
+   * non-conforming data may result in an unreadable file.
+   */
+  public void appendEncoded(ByteBuffer datum) throws IOException {
+<span class="nc" id="L339">    assertOpen();</span>
+<span class="nc" id="L340">    bufOut.writeFixed(datum);</span>
+<span class="nc" id="L341">    blockCount++;</span>
+<span class="nc" id="L342">    writeIfBlockFull();</span>
+<span class="nc" id="L343">  }</span>
+
+  private int bufferInUse() {
+<span class="nc" id="L346">    return (buffer.size() + bufOut.bytesBuffered());</span>
+  }
+
+  private void writeIfBlockFull() throws IOException {
+<span class="nc bnc" id="L350" title="All 2 branches missed.">    if (bufferInUse() &gt;= syncInterval)</span>
+<span class="nc" id="L351">      writeBlock();</span>
+<span class="nc" id="L352">  }</span>
+
+  /**
+   * Appends data from another file. otherFile must have the same schema. Data
+   * blocks will be copied without de-serializing data. If the codecs of the two
+   * files are compatible, data blocks are copied directly without decompression.
+   * If the codecs are not compatible, blocks from otherFile are uncompressed and
+   * then compressed using this file's codec.
+   * &lt;p/&gt;
+   * If the recompress flag is set all blocks are decompressed and then compressed
+   * using this file's codec. This is useful when the two files have compatible
+   * compression codecs but different codec options. For example, one might append
+   * a file compressed with deflate at compression level 1 to a file with deflate
+   * at compression level 7. If &lt;i&gt;recompress&lt;/i&gt; is false, blocks will be copied
+   * without changing the compression level. If true, they will be converted to
+   * the new compression level.
+   * 
+   * @param otherFile
+   * @param recompress
+   * @throws IOException
+   */
+  public void appendAllFrom(DataFileStream&lt;D&gt; otherFile, boolean recompress) throws IOException {
+<span class="nc" id="L374">    assertOpen();</span>
+    // make sure other file has same schema
+<span class="nc" id="L376">    Schema otherSchema = otherFile.getSchema();</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">    if (!this.schema.equals(otherSchema)) {</span>
+<span class="nc" id="L378">      throw new IOException(&quot;Schema from file &quot; + otherFile + &quot; does not match&quot;);</span>
+    }
+    // flush anything written so far
+<span class="nc" id="L381">    writeBlock();</span>
+<span class="nc" id="L382">    Codec otherCodec = otherFile.resolveCodec();</span>
+<span class="nc" id="L383">    DataBlock nextBlockRaw = null;</span>
+<span class="nc bnc" id="L384" title="All 4 branches missed.">    if (codec.equals(otherCodec) &amp;&amp; !recompress) {</span>
+      // copy raw bytes
+<span class="nc bnc" id="L386" title="All 2 branches missed.">      while (otherFile.hasNextBlock()) {</span>
+<span class="nc" id="L387">        nextBlockRaw = otherFile.nextRawBlock(nextBlockRaw);</span>
+<span class="nc" id="L388">        nextBlockRaw.writeBlockTo(vout, sync);</span>
+      }
+    } else {
+<span class="nc bnc" id="L391" title="All 2 branches missed.">      while (otherFile.hasNextBlock()) {</span>
+<span class="nc" id="L392">        nextBlockRaw = otherFile.nextRawBlock(nextBlockRaw);</span>
+<span class="nc" id="L393">        nextBlockRaw.decompressUsing(otherCodec);</span>
+<span class="nc" id="L394">        nextBlockRaw.compressUsing(codec);</span>
+<span class="nc" id="L395">        nextBlockRaw.writeBlockTo(vout, sync);</span>
+      }
+    }
+<span class="nc" id="L398">  }</span>
+
+  private void writeBlock() throws IOException {
+<span class="nc bnc" id="L401" title="All 2 branches missed.">    if (blockCount &gt; 0) {</span>
+      try {
+<span class="nc" id="L403">        bufOut.flush();</span>
+<span class="nc" id="L404">        ByteBuffer uncompressed = buffer.getByteArrayAsByteBuffer();</span>
+<span class="nc" id="L405">        DataBlock block = new DataBlock(uncompressed, blockCount);</span>
+<span class="nc" id="L406">        block.setFlushOnWrite(flushOnEveryBlock);</span>
+<span class="nc" id="L407">        block.compressUsing(codec);</span>
+<span class="nc" id="L408">        block.writeBlockTo(vout, sync);</span>
+      } finally {
+<span class="nc" id="L410">        buffer.reset();</span>
+<span class="nc" id="L411">        blockCount = 0;</span>
+      }
+    }
+<span class="nc" id="L414">  }</span>
+
+  /**
+   * Return the current position as a value that may be passed to
+   * {@link DataFileReader#seek(long)}. Forces the end of the current block,
+   * emitting a synchronization marker. By default, this will also flush the block
+   * to the stream.
+   *
+   * If {@linkplain #setFlushOnEveryBlock(boolean)} is called with param set to
+   * false, then this method may not flush the block. In this case, the
+   * {@linkplain #flush()} must be called to flush the stream.
+   */
+  public long sync() throws IOException {
+<span class="nc" id="L427">    assertOpen();</span>
+<span class="nc" id="L428">    writeBlock();</span>
+<span class="nc" id="L429">    return out.tell();</span>
+  }
+
+  /**
+   * Calls {@linkplain #sync()} and then flushes the current state of the file.
+   */
+  @Override
+  public void flush() throws IOException {
+<span class="nc" id="L437">    sync();</span>
+<span class="nc" id="L438">    vout.flush();</span>
+<span class="nc" id="L439">  }</span>
+
+  /**
+   * If this writer was instantiated using a File or using an
+   * {@linkplain Syncable} instance, this method flushes all buffers for this
+   * writer to disk. In other cases, this method behaves exactly like
+   * {@linkplain #flush()}.
+   *
+   * @throws IOException
+   */
+  public void fSync() throws IOException {
+<span class="nc" id="L450">    flush();</span>
+<span class="nc bnc" id="L451" title="All 2 branches missed.">    if (underlyingStream instanceof Syncable) {</span>
+<span class="nc" id="L452">      ((Syncable) underlyingStream).sync();</span>
+    }
+<span class="nc" id="L454">  }</span>
+
+  /** Flush and close the file. */
+  @Override
+  public void close() throws IOException {
+<span class="nc bnc" id="L459" title="All 2 branches missed.">    if (isOpen) {</span>
+<span class="nc" id="L460">      flush();</span>
+<span class="nc" id="L461">      out.close();</span>
+<span class="nc" id="L462">      isOpen = false;</span>
+    }
+<span class="nc" id="L464">  }</span>
+
+  private class BufferedFileOutputStream extends BufferedOutputStream {
+    private long position; // start of buffer
+
+    private class PositionFilter extends FilterOutputStream {
+<span class="nc" id="L470">      public PositionFilter(OutputStream out) throws IOException {</span>
+<span class="nc" id="L471">        super(out);</span>
+<span class="nc" id="L472">      }</span>
+
+      @Override
+      public void write(byte[] b, int off, int len) throws IOException {
+<span class="nc" id="L476">        out.write(b, off, len);</span>
+<span class="nc" id="L477">        position += len; // update on write</span>
+<span class="nc" id="L478">      }</span>
+    }
+
+<span class="nc" id="L481">    public BufferedFileOutputStream(OutputStream out) throws IOException {</span>
+<span class="nc" id="L482">      super(null);</span>
+<span class="nc" id="L483">      this.out = new PositionFilter(out);</span>
+<span class="nc" id="L484">    }</span>
+
+    public long tell() {
+<span class="nc" id="L487">      return position + count;</span>
+    }
+
+    @Override
+    public synchronized void flush() throws IOException {
+      try {
+<span class="nc" id="L493">        super.flush();</span>
+      } finally {
+        // Ensure that count is reset in any case to avoid writing garbage to the end of
+        // the file in case of an error
+        // occurred during the write
+<span class="nc" id="L498">        count = 0;</span>
+      }
+<span class="nc" id="L500">    }</span>
+  }
+
+  private static class NonCopyingByteArrayOutputStream extends ByteArrayOutputStream {
+    NonCopyingByteArrayOutputStream(int initialSize) {
+<span class="nc" id="L505">      super(initialSize);</span>
+<span class="nc" id="L506">    }</span>
+
+    ByteBuffer getByteArrayAsByteBuffer() {
+<span class="nc" id="L509">      return ByteBuffer.wrap(buf, 0, count);</span>
+    }
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

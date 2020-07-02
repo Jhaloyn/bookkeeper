@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ValidatingDecoder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">ValidatingDecoder.java</span></div><h1>ValidatingDecoder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Objects;
+
+import org.apache.avro.AvroTypeException;
+import org.apache.avro.Schema;
+import org.apache.avro.io.parsing.Parser;
+import org.apache.avro.io.parsing.Symbol;
+import org.apache.avro.io.parsing.ValidatingGrammarGenerator;
+import org.apache.avro.util.Utf8;
+
+/**
+ * An implementation of {@link Decoder} that ensures that the sequence of
+ * operations conforms to a schema.
+ * &lt;p/&gt;
+ * Use {@link DecoderFactory#validatingDecoder(Schema, Decoder)} to construct
+ * and configure.
+ * &lt;p/&gt;
+ * ValidatingDecoder is not thread-safe.
+ * 
+ * @see Decoder
+ * @see DecoderFactory
+ */
+public class ValidatingDecoder extends ParsingDecoder implements Parser.ActionHandler {
+  protected Decoder in;
+
+  ValidatingDecoder(Symbol root, Decoder in) throws IOException {
+<span class="nc" id="L47">    super(root);</span>
+<span class="nc" id="L48">    this.configure(in);</span>
+<span class="nc" id="L49">  }</span>
+
+  ValidatingDecoder(Schema schema, Decoder in) throws IOException {
+<span class="nc" id="L52">    this(getSymbol(schema), in);</span>
+<span class="nc" id="L53">  }</span>
+
+  private static Symbol getSymbol(Schema schema) {
+<span class="nc" id="L56">    Objects.requireNonNull(schema, &quot;Schema cannot be null&quot;);</span>
+<span class="nc" id="L57">    return new ValidatingGrammarGenerator().generate(schema);</span>
+  }
+
+  /** Re-initialize, reading from a new underlying Decoder. */
+  public ValidatingDecoder configure(Decoder in) throws IOException {
+<span class="nc" id="L62">    this.parser.reset();</span>
+<span class="nc" id="L63">    this.in = in;</span>
+<span class="nc" id="L64">    return this;</span>
+  }
+
+  @Override
+  public void readNull() throws IOException {
+<span class="nc" id="L69">    parser.advance(Symbol.NULL);</span>
+<span class="nc" id="L70">    in.readNull();</span>
+<span class="nc" id="L71">  }</span>
+
+  @Override
+  public boolean readBoolean() throws IOException {
+<span class="nc" id="L75">    parser.advance(Symbol.BOOLEAN);</span>
+<span class="nc" id="L76">    return in.readBoolean();</span>
+  }
+
+  @Override
+  public int readInt() throws IOException {
+<span class="nc" id="L81">    parser.advance(Symbol.INT);</span>
+<span class="nc" id="L82">    return in.readInt();</span>
+  }
+
+  @Override
+  public long readLong() throws IOException {
+<span class="nc" id="L87">    parser.advance(Symbol.LONG);</span>
+<span class="nc" id="L88">    return in.readLong();</span>
+  }
+
+  @Override
+  public float readFloat() throws IOException {
+<span class="nc" id="L93">    parser.advance(Symbol.FLOAT);</span>
+<span class="nc" id="L94">    return in.readFloat();</span>
+  }
+
+  @Override
+  public double readDouble() throws IOException {
+<span class="nc" id="L99">    parser.advance(Symbol.DOUBLE);</span>
+<span class="nc" id="L100">    return in.readDouble();</span>
+  }
+
+  @Override
+  public Utf8 readString(Utf8 old) throws IOException {
+<span class="nc" id="L105">    parser.advance(Symbol.STRING);</span>
+<span class="nc" id="L106">    return in.readString(old);</span>
+  }
+
+  @Override
+  public String readString() throws IOException {
+<span class="nc" id="L111">    parser.advance(Symbol.STRING);</span>
+<span class="nc" id="L112">    return in.readString();</span>
+  }
+
+  @Override
+  public void skipString() throws IOException {
+<span class="nc" id="L117">    parser.advance(Symbol.STRING);</span>
+<span class="nc" id="L118">    in.skipString();</span>
+<span class="nc" id="L119">  }</span>
+
+  @Override
+  public ByteBuffer readBytes(ByteBuffer old) throws IOException {
+<span class="nc" id="L123">    parser.advance(Symbol.BYTES);</span>
+<span class="nc" id="L124">    return in.readBytes(old);</span>
+  }
+
+  @Override
+  public void skipBytes() throws IOException {
+<span class="nc" id="L129">    parser.advance(Symbol.BYTES);</span>
+<span class="nc" id="L130">    in.skipBytes();</span>
+<span class="nc" id="L131">  }</span>
+
+  private void checkFixed(int size) throws IOException {
+<span class="nc" id="L134">    parser.advance(Symbol.FIXED);</span>
+<span class="nc" id="L135">    Symbol.IntCheckAction top = (Symbol.IntCheckAction) parser.popSymbol();</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">    if (size != top.size) {</span>
+<span class="nc" id="L137">      throw new AvroTypeException(</span>
+          &quot;Incorrect length for fixed binary: expected &quot; + top.size + &quot; but received &quot; + size + &quot; bytes.&quot;);
+    }
+<span class="nc" id="L140">  }</span>
+
+  @Override
+  public void readFixed(byte[] bytes, int start, int len) throws IOException {
+<span class="nc" id="L144">    checkFixed(len);</span>
+<span class="nc" id="L145">    in.readFixed(bytes, start, len);</span>
+<span class="nc" id="L146">  }</span>
+
+  @Override
+  public void skipFixed(int length) throws IOException {
+<span class="nc" id="L150">    checkFixed(length);</span>
+<span class="nc" id="L151">    in.skipFixed(length);</span>
+<span class="nc" id="L152">  }</span>
+
+  @Override
+  protected void skipFixed() throws IOException {
+<span class="nc" id="L156">    parser.advance(Symbol.FIXED);</span>
+<span class="nc" id="L157">    Symbol.IntCheckAction top = (Symbol.IntCheckAction) parser.popSymbol();</span>
+<span class="nc" id="L158">    in.skipFixed(top.size);</span>
+<span class="nc" id="L159">  }</span>
+
+  @Override
+  public int readEnum() throws IOException {
+<span class="nc" id="L163">    parser.advance(Symbol.ENUM);</span>
+<span class="nc" id="L164">    Symbol.IntCheckAction top = (Symbol.IntCheckAction) parser.popSymbol();</span>
+<span class="nc" id="L165">    int result = in.readEnum();</span>
+<span class="nc bnc" id="L166" title="All 4 branches missed.">    if (result &lt; 0 || result &gt;= top.size) {</span>
+<span class="nc" id="L167">      throw new AvroTypeException(&quot;Enumeration out of range: max is &quot; + top.size + &quot; but received &quot; + result);</span>
+    }
+<span class="nc" id="L169">    return result;</span>
+  }
+
+  @Override
+  public long readArrayStart() throws IOException {
+<span class="nc" id="L174">    parser.advance(Symbol.ARRAY_START);</span>
+<span class="nc" id="L175">    long result = in.readArrayStart();</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">    if (result == 0) {</span>
+<span class="nc" id="L177">      parser.advance(Symbol.ARRAY_END);</span>
+    }
+<span class="nc" id="L179">    return result;</span>
+  }
+
+  @Override
+  public long arrayNext() throws IOException {
+<span class="nc" id="L184">    parser.processTrailingImplicitActions();</span>
+<span class="nc" id="L185">    long result = in.arrayNext();</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    if (result == 0) {</span>
+<span class="nc" id="L187">      parser.advance(Symbol.ARRAY_END);</span>
+    }
+<span class="nc" id="L189">    return result;</span>
+  }
+
+  @Override
+  public long skipArray() throws IOException {
+<span class="nc" id="L194">    parser.advance(Symbol.ARRAY_START);</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">    for (long c = in.skipArray(); c != 0; c = in.skipArray()) {</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">      while (c-- &gt; 0) {</span>
+<span class="nc" id="L197">        parser.skipRepeater();</span>
+      }
+    }
+<span class="nc" id="L200">    parser.advance(Symbol.ARRAY_END);</span>
+<span class="nc" id="L201">    return 0;</span>
+  }
+
+  @Override
+  public long readMapStart() throws IOException {
+<span class="nc" id="L206">    parser.advance(Symbol.MAP_START);</span>
+<span class="nc" id="L207">    long result = in.readMapStart();</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">    if (result == 0) {</span>
+<span class="nc" id="L209">      parser.advance(Symbol.MAP_END);</span>
+    }
+<span class="nc" id="L211">    return result;</span>
+  }
+
+  @Override
+  public long mapNext() throws IOException {
+<span class="nc" id="L216">    parser.processTrailingImplicitActions();</span>
+<span class="nc" id="L217">    long result = in.mapNext();</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">    if (result == 0) {</span>
+<span class="nc" id="L219">      parser.advance(Symbol.MAP_END);</span>
+    }
+<span class="nc" id="L221">    return result;</span>
+  }
+
+  @Override
+  public long skipMap() throws IOException {
+<span class="nc" id="L226">    parser.advance(Symbol.MAP_START);</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">    for (long c = in.skipMap(); c != 0; c = in.skipMap()) {</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">      while (c-- &gt; 0) {</span>
+<span class="nc" id="L229">        parser.skipRepeater();</span>
+      }
+    }
+<span class="nc" id="L232">    parser.advance(Symbol.MAP_END);</span>
+<span class="nc" id="L233">    return 0;</span>
+  }
+
+  @Override
+  public int readIndex() throws IOException {
+<span class="nc" id="L238">    parser.advance(Symbol.UNION);</span>
+<span class="nc" id="L239">    Symbol.Alternative top = (Symbol.Alternative) parser.popSymbol();</span>
+<span class="nc" id="L240">    int result = in.readIndex();</span>
+<span class="nc" id="L241">    parser.pushSymbol(top.getSymbol(result));</span>
+<span class="nc" id="L242">    return result;</span>
+  }
+
+  @Override
+  public Symbol doAction(Symbol input, Symbol top) throws IOException {
+<span class="nc" id="L247">    return null;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

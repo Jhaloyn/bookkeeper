@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>WeakIdentityHashMap.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.util</a> &gt; <span class="el_source">WeakIdentityHashMap.java</span></div><h1>WeakIdentityHashMap.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.avro.util;
+
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Implements a combination of WeakHashMap and IdentityHashMap. Useful for
+ * caches that need to key off of a == comparison instead of a .equals.
+ *
+ * &lt;b&gt; This class is not a general-purpose Map implementation! While this class
+ * implements the Map interface, it intentionally violates Map's general
+ * contract, which mandates the use of the equals method when comparing objects.
+ * This class is designed for use only in the rare cases wherein
+ * reference-equality semantics are required.
+ *
+ * Note that this implementation is not synchronized. &lt;/b&gt;
+ */
+public class WeakIdentityHashMap&lt;K, V&gt; implements Map&lt;K, V&gt; {
+<span class="nc" id="L43">  private final ReferenceQueue&lt;K&gt; queue = new ReferenceQueue&lt;&gt;();</span>
+<span class="nc" id="L44">  private Map&lt;IdentityWeakReference, V&gt; backingStore = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L46">  public WeakIdentityHashMap() {</span>
+<span class="nc" id="L47">  }</span>
+
+  @Override
+  public void clear() {
+<span class="nc" id="L51">    backingStore.clear();</span>
+<span class="nc" id="L52">    reap();</span>
+<span class="nc" id="L53">  }</span>
+
+  @Override
+  public boolean containsKey(Object key) {
+<span class="nc" id="L57">    reap();</span>
+<span class="nc" id="L58">    return backingStore.containsKey(new IdentityWeakReference(key));</span>
+  }
+
+  @Override
+  public boolean containsValue(Object value) {
+<span class="nc" id="L63">    reap();</span>
+<span class="nc" id="L64">    return backingStore.containsValue(value);</span>
+  }
+
+  @Override
+  public Set&lt;Map.Entry&lt;K, V&gt;&gt; entrySet() {
+<span class="nc" id="L69">    reap();</span>
+<span class="nc" id="L70">    Set&lt;Map.Entry&lt;K, V&gt;&gt; ret = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    for (Map.Entry&lt;IdentityWeakReference, V&gt; ref : backingStore.entrySet()) {</span>
+<span class="nc" id="L72">      final K key = ref.getKey().get();</span>
+<span class="nc" id="L73">      final V value = ref.getValue();</span>
+<span class="nc" id="L74">      Map.Entry&lt;K, V&gt; entry = new Map.Entry&lt;K, V&gt;() {</span>
+        @Override
+        public K getKey() {
+<span class="nc" id="L77">          return key;</span>
+        }
+
+        @Override
+        public V getValue() {
+<span class="nc" id="L82">          return value;</span>
+        }
+
+        @Override
+        public V setValue(V value) {
+<span class="nc" id="L87">          throw new UnsupportedOperationException();</span>
+        }
+      };
+<span class="nc" id="L90">      ret.add(entry);</span>
+<span class="nc" id="L91">    }</span>
+<span class="nc" id="L92">    return Collections.unmodifiableSet(ret);</span>
+  }
+
+  @Override
+  public Set&lt;K&gt; keySet() {
+<span class="nc" id="L97">    reap();</span>
+<span class="nc" id="L98">    Set&lt;K&gt; ret = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">    for (IdentityWeakReference ref : backingStore.keySet()) {</span>
+<span class="nc" id="L100">      ret.add(ref.get());</span>
+<span class="nc" id="L101">    }</span>
+<span class="nc" id="L102">    return Collections.unmodifiableSet(ret);</span>
+  }
+
+  @Override
+  public boolean equals(Object o) {
+<span class="nc bnc" id="L107" title="All 2 branches missed.">    if (!(o instanceof WeakIdentityHashMap)) {</span>
+<span class="nc" id="L108">      return false;</span>
+    }
+<span class="nc" id="L110">    return backingStore.equals(((WeakIdentityHashMap) o).backingStore);</span>
+  }
+
+  @Override
+  public V get(Object key) {
+<span class="nc" id="L115">    reap();</span>
+<span class="nc" id="L116">    return backingStore.get(new IdentityWeakReference(key));</span>
+  }
+
+  @Override
+  public V put(K key, V value) {
+<span class="nc" id="L121">    reap();</span>
+<span class="nc" id="L122">    return backingStore.put(new IdentityWeakReference(key), value);</span>
+  }
+
+  @Override
+  public int hashCode() {
+<span class="nc" id="L127">    reap();</span>
+<span class="nc" id="L128">    return backingStore.hashCode();</span>
+  }
+
+  @Override
+  public boolean isEmpty() {
+<span class="nc" id="L133">    reap();</span>
+<span class="nc" id="L134">    return backingStore.isEmpty();</span>
+  }
+
+  @Override
+  public void putAll(Map t) {
+<span class="nc" id="L139">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public V remove(Object key) {
+<span class="nc" id="L144">    reap();</span>
+<span class="nc" id="L145">    return backingStore.remove(new IdentityWeakReference(key));</span>
+  }
+
+  @Override
+  public int size() {
+<span class="nc" id="L150">    reap();</span>
+<span class="nc" id="L151">    return backingStore.size();</span>
+  }
+
+  @Override
+  public Collection&lt;V&gt; values() {
+<span class="nc" id="L156">    reap();</span>
+<span class="nc" id="L157">    return backingStore.values();</span>
+  }
+
+  private synchronized void reap() {
+<span class="nc" id="L161">    Object zombie = queue.poll();</span>
+
+<span class="nc bnc" id="L163" title="All 2 branches missed.">    while (zombie != null) {</span>
+<span class="nc" id="L164">      IdentityWeakReference victim = (IdentityWeakReference) zombie;</span>
+<span class="nc" id="L165">      backingStore.remove(victim);</span>
+<span class="nc" id="L166">      zombie = queue.poll();</span>
+<span class="nc" id="L167">    }</span>
+<span class="nc" id="L168">  }</span>
+
+  class IdentityWeakReference extends WeakReference&lt;K&gt; {
+    int hash;
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L174">    IdentityWeakReference(Object obj) {</span>
+<span class="nc" id="L175">      super((K) obj, queue);</span>
+<span class="nc" id="L176">      hash = System.identityHashCode(obj);</span>
+<span class="nc" id="L177">    }</span>
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L181">      return hash;</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L186" title="All 2 branches missed.">      if (this == o) {</span>
+<span class="nc" id="L187">        return true;</span>
+      }
+<span class="nc bnc" id="L189" title="All 2 branches missed.">      if (!(o instanceof WeakIdentityHashMap.IdentityWeakReference)) {</span>
+<span class="nc" id="L190">        return false;</span>
+      }
+<span class="nc" id="L192">      IdentityWeakReference ref = (IdentityWeakReference) o;</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">      return this.get() == ref.get();</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>JsonProperties.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro</a> &gt; <span class="el_source">JsonProperties.java</span></div><h1>JsonProperties.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro;
+
+import java.util.AbstractSet;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
+
+import java.io.IOException;
+
+import org.apache.avro.util.internal.Accessor;
+import org.apache.avro.util.internal.Accessor.JsonPropertiesAccessor;
+import org.apache.avro.reflect.MapEntry;
+import org.apache.avro.util.internal.JacksonUtils;
+
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.TextNode;
+
+/**
+ * Base class for objects that have JSON-valued properties. Avro and JSON values
+ * are represented in Java using the following mapping:
+ *
+ * &lt;table&gt;
+ * &lt;th&gt;
+ * &lt;td&gt;Avro type&lt;/td&gt;
+ * &lt;td&gt;JSON type&lt;/td&gt;
+ * &lt;td&gt;Java type&lt;/td&gt;&lt;/th&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;null&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;&lt;code&gt;null&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;{@link #NULL_VALUE}&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;boolean&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;Boolean&lt;/td&gt;
+ * &lt;td&gt;&lt;code&gt;boolean&lt;/code&gt;&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;int&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;Number&lt;/td&gt;
+ * &lt;td&gt;&lt;code&gt;int&lt;/code&gt;&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;long&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;Number&lt;/td&gt;
+ * &lt;td&gt;&lt;code&gt;long&lt;/code&gt;&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;float&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;Number&lt;/td&gt;
+ * &lt;td&gt;&lt;code&gt;float&lt;/code&gt;&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;double&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;Number&lt;/td&gt;
+ * &lt;td&gt;&lt;code&gt;double&lt;/code&gt;&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;bytes&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;String&lt;/td&gt;
+ * &lt;td&gt;&lt;code&gt;byte[]&lt;/code&gt;&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;string&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;String&lt;/td&gt;
+ * &lt;td&gt;{@link java.lang.String}&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;record&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;Object&lt;/td&gt;
+ * &lt;td&gt;{@link java.util.Map}&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;enum&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;String&lt;/td&gt;
+ * &lt;td&gt;{@link java.lang.String}&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;array&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;Array&lt;/td&gt;
+ * &lt;td&gt;{@link java.util.Collection}&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;map&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;Object&lt;/td&gt;
+ * &lt;td&gt;{@link java.util.Map}&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;tr&gt;
+ * &lt;td&gt;&lt;code&gt;fixed&lt;/code&gt;&lt;/td&gt;
+ * &lt;td&gt;String&lt;/td&gt;
+ * &lt;td&gt;&lt;code&gt;byte[]&lt;/code&gt;&lt;/td&gt;
+ * &lt;/tr&gt;
+ * &lt;/table&gt;
+ *
+ * @see org.apache.avro.data.Json
+ */
+public abstract class JsonProperties {
+
+  static {
+<span class="fc" id="L124">    Accessor.setAccessor(new JsonPropertiesAccessor() {</span>
+      @Override
+      protected void addProp(JsonProperties props, String name, JsonNode value) {
+<span class="nc" id="L127">        props.addProp(name, value);</span>
+<span class="nc" id="L128">      }</span>
+    });
+  }
+
+  public static class Null {
+    private Null() {
+    }
+  }
+
+  /** A value representing a JSON &lt;code&gt;null&lt;/code&gt;. */
+<span class="fc" id="L138">  public static final Null NULL_VALUE = new Null();</span>
+
+  // use a ConcurrentHashMap for speed and thread safety, but keep a Queue of the
+  // entries to maintain order
+  // the queue is always updated after the main map and is thus is potentially a
+  // subset of the map.
+  // By making props private, we can control access and only implement/override
+  // the methods
+  // we need. We don't ever remove anything so we don't need to implement the
+  // clear/remove functionality.
+  // Also, we only ever ADD to the collection, never changing a value, so
+  // putWithAbsent is the
+  // only modifier
+<span class="pc" id="L151">  private ConcurrentMap&lt;String, JsonNode&gt; props = new ConcurrentHashMap&lt;String, JsonNode&gt;() {</span>
+    private static final long serialVersionUID = 1L;
+<span class="fc" id="L153">    private Queue&lt;MapEntry&lt;String, JsonNode&gt;&gt; propOrder = new ConcurrentLinkedQueue&lt;&gt;();</span>
+
+    @Override
+    public JsonNode putIfAbsent(String key, JsonNode value) {
+<span class="nc" id="L157">      JsonNode r = super.putIfAbsent(key, value);</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">      if (r == null) {</span>
+<span class="nc" id="L159">        propOrder.add(new MapEntry&lt;&gt;(key, value));</span>
+      }
+<span class="nc" id="L161">      return r;</span>
+    }
+
+    @Override
+    public JsonNode put(String key, JsonNode value) {
+<span class="nc" id="L166">      return putIfAbsent(key, value);</span>
+    }
+
+    @Override
+    public Set&lt;Map.Entry&lt;String, JsonNode&gt;&gt; entrySet() {
+<span class="fc" id="L171">      return new AbstractSet&lt;Map.Entry&lt;String, JsonNode&gt;&gt;() {</span>
+        @Override
+        public Iterator&lt;Map.Entry&lt;String, JsonNode&gt;&gt; iterator() {
+<span class="fc" id="L174">          return new Iterator&lt;Map.Entry&lt;String, JsonNode&gt;&gt;() {</span>
+<span class="fc" id="L175">            Iterator&lt;MapEntry&lt;String, JsonNode&gt;&gt; it = propOrder.iterator();</span>
+
+            @Override
+            public boolean hasNext() {
+<span class="fc" id="L179">              return it.hasNext();</span>
+            }
+
+            @Override
+            public java.util.Map.Entry&lt;String, JsonNode&gt; next() {
+<span class="nc" id="L184">              return it.next();</span>
+            }
+          };
+        }
+
+        @Override
+        public int size() {
+<span class="nc" id="L191">          return propOrder.size();</span>
+        }
+      };
+    }
+  };
+
+  private Set&lt;String&gt; reserved;
+
+<span class="fc" id="L199">  JsonProperties(Set&lt;String&gt; reserved) {</span>
+<span class="fc" id="L200">    this.reserved = reserved;</span>
+<span class="fc" id="L201">  }</span>
+
+<span class="nc" id="L203">  JsonProperties(Set&lt;String&gt; reserved, Map&lt;String, ?&gt; propMap) {</span>
+<span class="nc" id="L204">    this.reserved = reserved;</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">    for (Entry&lt;String, ?&gt; a : propMap.entrySet()) {</span>
+<span class="nc" id="L206">      Object v = a.getValue();</span>
+<span class="nc" id="L207">      JsonNode json = null;</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">      if (v instanceof String) {</span>
+<span class="nc" id="L209">        json = TextNode.valueOf((String) v);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">      } else if (v instanceof JsonNode) {</span>
+<span class="nc" id="L211">        json = (JsonNode) v;</span>
+      } else {
+<span class="nc" id="L213">        json = JacksonUtils.toJsonNode(v);</span>
+      }
+<span class="nc" id="L215">      props.put(a.getKey(), json);</span>
+<span class="nc" id="L216">    }</span>
+<span class="nc" id="L217">  }</span>
+
+  /**
+   * Returns the value of the named, string-valued property in this schema.
+   * Returns &lt;tt&gt;null&lt;/tt&gt; if there is no string-valued property with that name.
+   */
+  public String getProp(String name) {
+<span class="fc" id="L224">    JsonNode value = getJsonProp(name);</span>
+<span class="pc bpc" id="L225" title="3 of 4 branches missed.">    return value != null &amp;&amp; value.isTextual() ? value.textValue() : null;</span>
+  }
+
+  /**
+   * Returns the value of the named property in this schema. Returns &lt;tt&gt;null&lt;/tt&gt;
+   * if there is no property with that name.
+   */
+  private JsonNode getJsonProp(String name) {
+<span class="fc" id="L233">    return props.get(name);</span>
+  }
+
+  /**
+   * Returns the value of the named property in this schema. Returns &lt;tt&gt;null&lt;/tt&gt;
+   * if there is no property with that name.
+   */
+  public Object getObjectProp(String name) {
+<span class="nc" id="L241">    return JacksonUtils.toObject(props.get(name));</span>
+  }
+
+  /**
+   * Adds a property with the given name &lt;tt&gt;name&lt;/tt&gt; and value &lt;tt&gt;value&lt;/tt&gt;.
+   * Neither &lt;tt&gt;name&lt;/tt&gt; nor &lt;tt&gt;value&lt;/tt&gt; can be &lt;tt&gt;null&lt;/tt&gt;. It is illegal
+   * to add a property if another with the same name but different value already
+   * exists in this schema.
+   *
+   * @param name  The name of the property to add
+   * @param value The value for the property to add
+   */
+  public void addProp(String name, String value) {
+<span class="nc" id="L254">    addProp(name, TextNode.valueOf(value));</span>
+<span class="nc" id="L255">  }</span>
+
+  public void addProp(String name, Object value) {
+<span class="nc bnc" id="L258" title="All 2 branches missed.">    if (value instanceof JsonNode) {</span>
+<span class="nc" id="L259">      addProp(name, (JsonNode) value);</span>
+    } else {
+<span class="nc" id="L261">      addProp(name, JacksonUtils.toJsonNode(value));</span>
+    }
+<span class="nc" id="L263">  }</span>
+
+  public void putAll(JsonProperties np) {
+<span class="nc bnc" id="L266" title="All 2 branches missed.">    for (Map.Entry&lt;? extends String, ? extends JsonNode&gt; e : np.props.entrySet())</span>
+<span class="nc" id="L267">      addProp(e.getKey(), e.getValue());</span>
+<span class="nc" id="L268">  }</span>
+
+  /**
+   * Adds a property with the given name &lt;tt&gt;name&lt;/tt&gt; and value &lt;tt&gt;value&lt;/tt&gt;.
+   * Neither &lt;tt&gt;name&lt;/tt&gt; nor &lt;tt&gt;value&lt;/tt&gt; can be &lt;tt&gt;null&lt;/tt&gt;. It is illegal
+   * to add a property if another with the same name but different value already
+   * exists in this schema.
+   *
+   * @param name  The name of the property to add
+   * @param value The value for the property to add
+   */
+  private void addProp(String name, JsonNode value) {
+<span class="nc bnc" id="L280" title="All 2 branches missed.">    if (reserved.contains(name))</span>
+<span class="nc" id="L281">      throw new AvroRuntimeException(&quot;Can't set reserved property: &quot; + name);</span>
+
+<span class="nc bnc" id="L283" title="All 2 branches missed.">    if (value == null)</span>
+<span class="nc" id="L284">      throw new AvroRuntimeException(&quot;Can't set a property to null: &quot; + name);</span>
+
+<span class="nc" id="L286">    JsonNode old = props.putIfAbsent(name, value);</span>
+<span class="nc bnc" id="L287" title="All 4 branches missed.">    if (old != null &amp;&amp; !old.equals(value)) {</span>
+<span class="nc" id="L288">      throw new AvroRuntimeException(&quot;Can't overwrite property: &quot; + name);</span>
+    }
+<span class="nc" id="L290">  }</span>
+
+  /**
+   * Adds all the props from the specified json properties.
+   *
+   * @see #getObjectProps()
+   */
+  public void addAllProps(JsonProperties properties) {
+<span class="nc bnc" id="L298" title="All 2 branches missed.">    for (Entry&lt;String, JsonNode&gt; entry : properties.props.entrySet())</span>
+<span class="nc" id="L299">      addProp(entry.getKey(), entry.getValue());</span>
+<span class="nc" id="L300">  }</span>
+
+  /** Return the defined properties as an unmodifiable Map. */
+  public Map&lt;String, Object&gt; getObjectProps() {
+<span class="nc" id="L304">    Map&lt;String, Object&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">    for (Map.Entry&lt;String, JsonNode&gt; e : props.entrySet())</span>
+<span class="nc" id="L306">      result.put(e.getKey(), JacksonUtils.toObject(e.getValue()));</span>
+<span class="nc" id="L307">    return Collections.unmodifiableMap(result);</span>
+  }
+
+  void writeProps(JsonGenerator gen) throws IOException {
+<span class="pc bpc" id="L311" title="1 of 2 branches missed.">    for (Map.Entry&lt;String, JsonNode&gt; e : props.entrySet())</span>
+<span class="nc" id="L312">      gen.writeObjectField(e.getKey(), e.getValue());</span>
+<span class="fc" id="L313">  }</span>
+
+  int propsHashCode() {
+<span class="nc" id="L316">    return props.hashCode();</span>
+  }
+
+  boolean propsEqual(JsonProperties np) {
+<span class="nc" id="L320">    return props.equals(np.props);</span>
+  }
+
+  public boolean hasProps() {
+<span class="pc bpc" id="L324" title="1 of 2 branches missed.">    return !props.isEmpty();</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

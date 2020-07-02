@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>SpecificErrorBuilderBase.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.specific</a> &gt; <span class="el_source">SpecificErrorBuilderBase.java</span></div><h1>SpecificErrorBuilderBase.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.specific;
+
+import java.lang.reflect.Constructor;
+
+import org.apache.avro.Schema;
+import org.apache.avro.data.ErrorBuilder;
+import org.apache.avro.data.RecordBuilderBase;
+
+/**
+ * Abstract base class for specific ErrorBuilder implementations. Not
+ * thread-safe.
+ */
+abstract public class SpecificErrorBuilderBase&lt;T extends SpecificExceptionBase&gt; extends RecordBuilderBase&lt;T&gt;
+    implements ErrorBuilder&lt;T&gt; {
+  private Constructor&lt;T&gt; errorConstructor;
+  private Object value;
+  private boolean hasValue;
+  private Throwable cause;
+  private boolean hasCause;
+
+  /**
+   * Creates a SpecificErrorBuilderBase for building errors of the given type.
+   * 
+   * @param schema the schema associated with the error class.
+   */
+  protected SpecificErrorBuilderBase(Schema schema) {
+<span class="nc" id="L44">    super(schema, SpecificData.get());</span>
+<span class="nc" id="L45">  }</span>
+
+  /**
+   * SpecificErrorBuilderBase copy constructor.
+   * 
+   * @param other SpecificErrorBuilderBase instance to copy.
+   */
+  protected SpecificErrorBuilderBase(SpecificErrorBuilderBase&lt;T&gt; other) {
+<span class="nc" id="L53">    super(other, SpecificData.get());</span>
+<span class="nc" id="L54">    this.errorConstructor = other.errorConstructor;</span>
+<span class="nc" id="L55">    this.value = other.value;</span>
+<span class="nc" id="L56">    this.hasValue = other.hasValue;</span>
+<span class="nc" id="L57">    this.cause = other.cause;</span>
+<span class="nc" id="L58">    this.hasCause = other.hasCause;</span>
+<span class="nc" id="L59">  }</span>
+
+  /**
+   * Creates a SpecificErrorBuilderBase by copying an existing error instance.
+   * 
+   * @param other the error instance to copy.
+   */
+  protected SpecificErrorBuilderBase(T other) {
+<span class="nc" id="L67">    super(other.getSchema(), SpecificData.get());</span>
+
+<span class="nc" id="L69">    Object otherValue = other.getValue();</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">    if (otherValue != null) {</span>
+<span class="nc" id="L71">      setValue(otherValue);</span>
+    }
+
+<span class="nc" id="L74">    Throwable otherCause = other.getCause();</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">    if (otherCause != null) {</span>
+<span class="nc" id="L76">      setCause(otherCause);</span>
+    }
+<span class="nc" id="L78">  }</span>
+
+  @Override
+  public Object getValue() {
+<span class="nc" id="L82">    return value;</span>
+  }
+
+  @Override
+  public SpecificErrorBuilderBase&lt;T&gt; setValue(Object value) {
+<span class="nc" id="L87">    this.value = value;</span>
+<span class="nc" id="L88">    hasValue = true;</span>
+<span class="nc" id="L89">    return this;</span>
+  }
+
+  @Override
+  public boolean hasValue() {
+<span class="nc" id="L94">    return hasValue;</span>
+  }
+
+  @Override
+  public SpecificErrorBuilderBase&lt;T&gt; clearValue() {
+<span class="nc" id="L99">    value = null;</span>
+<span class="nc" id="L100">    hasValue = false;</span>
+<span class="nc" id="L101">    return this;</span>
+  }
+
+  @Override
+  public Throwable getCause() {
+<span class="nc" id="L106">    return cause;</span>
+  }
+
+  @Override
+  public SpecificErrorBuilderBase&lt;T&gt; setCause(Throwable cause) {
+<span class="nc" id="L111">    this.cause = cause;</span>
+<span class="nc" id="L112">    hasCause = true;</span>
+<span class="nc" id="L113">    return this;</span>
+  }
+
+  @Override
+  public boolean hasCause() {
+<span class="nc" id="L118">    return hasCause;</span>
+  }
+
+  @Override
+  public SpecificErrorBuilderBase&lt;T&gt; clearCause() {
+<span class="nc" id="L123">    cause = null;</span>
+<span class="nc" id="L124">    hasCause = false;</span>
+<span class="nc" id="L125">    return this;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

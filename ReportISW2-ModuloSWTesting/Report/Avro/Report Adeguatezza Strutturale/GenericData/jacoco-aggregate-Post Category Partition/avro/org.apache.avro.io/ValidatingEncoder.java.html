@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ValidatingEncoder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">ValidatingEncoder.java</span></div><h1>ValidatingEncoder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.avro.io;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+
+import org.apache.avro.AvroTypeException;
+import org.apache.avro.Schema;
+import org.apache.avro.io.parsing.ValidatingGrammarGenerator;
+import org.apache.avro.io.parsing.Parser;
+import org.apache.avro.io.parsing.Symbol;
+import org.apache.avro.util.Utf8;
+
+/**
+ * An implementation of {@link Encoder} that wraps another Encoder and ensures
+ * that the sequence of operations conforms to the provided schema.
+ * &lt;p/&gt;
+ * Use {@link EncoderFactory#validatingEncoder(Schema, Encoder)} to construct
+ * and configure.
+ * &lt;p/&gt;
+ * ValidatingEncoder is not thread-safe.
+ * 
+ * @see Encoder
+ * @see EncoderFactory
+ */
+public class ValidatingEncoder extends ParsingEncoder implements Parser.ActionHandler {
+  protected Encoder out;
+  protected final Parser parser;
+
+<span class="nc" id="L47">  ValidatingEncoder(Symbol root, Encoder out) throws IOException {</span>
+<span class="nc" id="L48">    this.out = out;</span>
+<span class="nc" id="L49">    this.parser = new Parser(root, this);</span>
+<span class="nc" id="L50">  }</span>
+
+  ValidatingEncoder(Schema schema, Encoder in) throws IOException {
+<span class="nc" id="L53">    this(new ValidatingGrammarGenerator().generate(schema), in);</span>
+<span class="nc" id="L54">  }</span>
+
+  @Override
+  public void flush() throws IOException {
+<span class="nc" id="L58">    out.flush();</span>
+<span class="nc" id="L59">  }</span>
+
+  /**
+   * Reconfigures this ValidatingEncoder to wrap the encoder provided.
+   * 
+   * @param encoder The Encoder to wrap for validation.
+   * @return This ValidatingEncoder.
+   */
+  public ValidatingEncoder configure(Encoder encoder) {
+<span class="nc" id="L68">    this.parser.reset();</span>
+<span class="nc" id="L69">    this.out = encoder;</span>
+<span class="nc" id="L70">    return this;</span>
+  }
+
+  @Override
+  public void writeNull() throws IOException {
+<span class="nc" id="L75">    parser.advance(Symbol.NULL);</span>
+<span class="nc" id="L76">    out.writeNull();</span>
+<span class="nc" id="L77">  }</span>
+
+  @Override
+  public void writeBoolean(boolean b) throws IOException {
+<span class="nc" id="L81">    parser.advance(Symbol.BOOLEAN);</span>
+<span class="nc" id="L82">    out.writeBoolean(b);</span>
+<span class="nc" id="L83">  }</span>
+
+  @Override
+  public void writeInt(int n) throws IOException {
+<span class="nc" id="L87">    parser.advance(Symbol.INT);</span>
+<span class="nc" id="L88">    out.writeInt(n);</span>
+<span class="nc" id="L89">  }</span>
+
+  @Override
+  public void writeLong(long n) throws IOException {
+<span class="nc" id="L93">    parser.advance(Symbol.LONG);</span>
+<span class="nc" id="L94">    out.writeLong(n);</span>
+<span class="nc" id="L95">  }</span>
+
+  @Override
+  public void writeFloat(float f) throws IOException {
+<span class="nc" id="L99">    parser.advance(Symbol.FLOAT);</span>
+<span class="nc" id="L100">    out.writeFloat(f);</span>
+<span class="nc" id="L101">  }</span>
+
+  @Override
+  public void writeDouble(double d) throws IOException {
+<span class="nc" id="L105">    parser.advance(Symbol.DOUBLE);</span>
+<span class="nc" id="L106">    out.writeDouble(d);</span>
+<span class="nc" id="L107">  }</span>
+
+  @Override
+  public void writeString(Utf8 utf8) throws IOException {
+<span class="nc" id="L111">    parser.advance(Symbol.STRING);</span>
+<span class="nc" id="L112">    out.writeString(utf8);</span>
+<span class="nc" id="L113">  }</span>
+
+  @Override
+  public void writeString(String str) throws IOException {
+<span class="nc" id="L117">    parser.advance(Symbol.STRING);</span>
+<span class="nc" id="L118">    out.writeString(str);</span>
+<span class="nc" id="L119">  }</span>
+
+  @Override
+  public void writeString(CharSequence charSequence) throws IOException {
+<span class="nc" id="L123">    parser.advance(Symbol.STRING);</span>
+<span class="nc" id="L124">    out.writeString(charSequence);</span>
+<span class="nc" id="L125">  }</span>
+
+  @Override
+  public void writeBytes(ByteBuffer bytes) throws IOException {
+<span class="nc" id="L129">    parser.advance(Symbol.BYTES);</span>
+<span class="nc" id="L130">    out.writeBytes(bytes);</span>
+<span class="nc" id="L131">  }</span>
+
+  @Override
+  public void writeBytes(byte[] bytes, int start, int len) throws IOException {
+<span class="nc" id="L135">    parser.advance(Symbol.BYTES);</span>
+<span class="nc" id="L136">    out.writeBytes(bytes, start, len);</span>
+<span class="nc" id="L137">  }</span>
+
+  @Override
+  public void writeFixed(byte[] bytes, int start, int len) throws IOException {
+<span class="nc" id="L141">    parser.advance(Symbol.FIXED);</span>
+<span class="nc" id="L142">    Symbol.IntCheckAction top = (Symbol.IntCheckAction) parser.popSymbol();</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">    if (len != top.size) {</span>
+<span class="nc" id="L144">      throw new AvroTypeException(</span>
+          &quot;Incorrect length for fixed binary: expected &quot; + top.size + &quot; but received &quot; + len + &quot; bytes.&quot;);
+    }
+<span class="nc" id="L147">    out.writeFixed(bytes, start, len);</span>
+<span class="nc" id="L148">  }</span>
+
+  @Override
+  public void writeEnum(int e) throws IOException {
+<span class="nc" id="L152">    parser.advance(Symbol.ENUM);</span>
+<span class="nc" id="L153">    Symbol.IntCheckAction top = (Symbol.IntCheckAction) parser.popSymbol();</span>
+<span class="nc bnc" id="L154" title="All 4 branches missed.">    if (e &lt; 0 || e &gt;= top.size) {</span>
+<span class="nc" id="L155">      throw new AvroTypeException(&quot;Enumeration out of range: max is &quot; + top.size + &quot; but received &quot; + e);</span>
+    }
+<span class="nc" id="L157">    out.writeEnum(e);</span>
+<span class="nc" id="L158">  }</span>
+
+  @Override
+  public void writeArrayStart() throws IOException {
+<span class="nc" id="L162">    push();</span>
+<span class="nc" id="L163">    parser.advance(Symbol.ARRAY_START);</span>
+<span class="nc" id="L164">    out.writeArrayStart();</span>
+<span class="nc" id="L165">  }</span>
+
+  @Override
+  public void writeArrayEnd() throws IOException {
+<span class="nc" id="L169">    parser.advance(Symbol.ARRAY_END);</span>
+<span class="nc" id="L170">    out.writeArrayEnd();</span>
+<span class="nc" id="L171">    pop();</span>
+<span class="nc" id="L172">  }</span>
+
+  @Override
+  public void writeMapStart() throws IOException {
+<span class="nc" id="L176">    push();</span>
+<span class="nc" id="L177">    parser.advance(Symbol.MAP_START);</span>
+<span class="nc" id="L178">    out.writeMapStart();</span>
+<span class="nc" id="L179">  }</span>
+
+  @Override
+  public void writeMapEnd() throws IOException {
+<span class="nc" id="L183">    parser.advance(Symbol.MAP_END);</span>
+<span class="nc" id="L184">    out.writeMapEnd();</span>
+<span class="nc" id="L185">    pop();</span>
+<span class="nc" id="L186">  }</span>
+
+  @Override
+  public void setItemCount(long itemCount) throws IOException {
+<span class="nc" id="L190">    super.setItemCount(itemCount);</span>
+<span class="nc" id="L191">    out.setItemCount(itemCount);</span>
+<span class="nc" id="L192">  }</span>
+
+  @Override
+  public void startItem() throws IOException {
+<span class="nc" id="L196">    super.startItem();</span>
+<span class="nc" id="L197">    out.startItem();</span>
+<span class="nc" id="L198">  }</span>
+
+  @Override
+  public void writeIndex(int unionIndex) throws IOException {
+<span class="nc" id="L202">    parser.advance(Symbol.UNION);</span>
+<span class="nc" id="L203">    Symbol.Alternative top = (Symbol.Alternative) parser.popSymbol();</span>
+<span class="nc" id="L204">    parser.pushSymbol(top.getSymbol(unionIndex));</span>
+<span class="nc" id="L205">    out.writeIndex(unionIndex);</span>
+<span class="nc" id="L206">  }</span>
+
+  @Override
+  public Symbol doAction(Symbol input, Symbol top) throws IOException {
+<span class="nc" id="L210">    return null;</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

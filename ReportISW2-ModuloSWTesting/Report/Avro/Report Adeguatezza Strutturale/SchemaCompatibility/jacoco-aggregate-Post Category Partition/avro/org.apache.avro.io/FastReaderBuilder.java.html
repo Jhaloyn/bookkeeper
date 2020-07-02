@@ -1,0 +1,615 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>FastReaderBuilder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">FastReaderBuilder.java</span></div><h1>FastReaderBuilder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license
+ * agreements. See the NOTICE file distributed with this work for additional information regarding
+ * copyright ownership. The ASF licenses this file to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance with the License. You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
+ */
+package org.apache.avro.io;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.IntFunction;
+
+import org.apache.avro.AvroTypeException;
+import org.apache.avro.Conversion;
+import org.apache.avro.Conversions;
+import org.apache.avro.Resolver;
+import org.apache.avro.Resolver.Action;
+import org.apache.avro.Resolver.Container;
+import org.apache.avro.Resolver.EnumAdjust;
+import org.apache.avro.Resolver.Promote;
+import org.apache.avro.Resolver.ReaderUnion;
+import org.apache.avro.Resolver.RecordAdjust;
+import org.apache.avro.Resolver.Skip;
+import org.apache.avro.Resolver.WriterUnion;
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.generic.GenericArray;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericData.InstanceSupplier;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericEnumSymbol;
+import org.apache.avro.generic.GenericFixed;
+import org.apache.avro.generic.IndexedRecord;
+import org.apache.avro.io.FastReaderBuilder.RecordReader.Stage;
+import org.apache.avro.io.parsing.ResolvingGrammarGenerator;
+import org.apache.avro.reflect.ReflectionUtil;
+import org.apache.avro.specific.SpecificData;
+import org.apache.avro.specific.SpecificRecordBase;
+import org.apache.avro.util.Utf8;
+import org.apache.avro.util.WeakIdentityHashMap;
+import org.apache.avro.util.internal.Accessor;
+
+public class FastReaderBuilder {
+
+  /**
+   * Generic/SpecificData instance that contains basic functionalities like
+   * instantiation of objects
+   */
+  private final GenericData data;
+
+  /** first schema is reader schema, second is writer schema */
+<span class="nc" id="L68">  private final Map&lt;Schema, Map&lt;Schema, RecordReader&gt;&gt; readerCache = Collections</span>
+<span class="nc" id="L69">      .synchronizedMap(new WeakIdentityHashMap&lt;&gt;());</span>
+
+<span class="nc" id="L71">  private boolean keyClassEnabled = true;</span>
+
+<span class="nc" id="L73">  private boolean classPropEnabled = true;</span>
+
+  public static FastReaderBuilder get() {
+<span class="nc" id="L76">    return new FastReaderBuilder(GenericData.get());</span>
+  }
+
+  public static FastReaderBuilder getSpecific() {
+<span class="nc" id="L80">    return new FastReaderBuilder(SpecificData.get());</span>
+  }
+
+  public static boolean isSupportedData(GenericData data) {
+<span class="nc bnc" id="L84" title="All 4 branches missed.">    return data.getClass() == GenericData.class || data.getClass() == SpecificData.class;</span>
+  }
+
+<span class="nc" id="L87">  public FastReaderBuilder(GenericData parentData) {</span>
+<span class="nc" id="L88">    this.data = parentData;</span>
+<span class="nc" id="L89">  }</span>
+
+  public FastReaderBuilder withKeyClassEnabled(boolean enabled) {
+<span class="nc" id="L92">    this.keyClassEnabled = enabled;</span>
+<span class="nc" id="L93">    return this;</span>
+  }
+
+  public boolean isKeyClassEnabled() {
+<span class="nc" id="L97">    return this.keyClassEnabled;</span>
+  }
+
+  public FastReaderBuilder withClassPropEnabled(boolean enabled) {
+<span class="nc" id="L101">    this.classPropEnabled = enabled;</span>
+<span class="nc" id="L102">    return this;</span>
+  }
+
+  public boolean isClassPropEnabled() {
+<span class="nc" id="L106">    return this.classPropEnabled;</span>
+  }
+
+  public &lt;D&gt; DatumReader&lt;D&gt; createDatumReader(Schema schema) throws IOException {
+<span class="nc" id="L110">    return createDatumReader(schema, schema);</span>
+  }
+
+  @SuppressWarnings(&quot;unchecked&quot;)
+  public &lt;D&gt; DatumReader&lt;D&gt; createDatumReader(Schema writerSchema, Schema readerSchema) throws IOException {
+<span class="nc" id="L115">    Schema resolvedWriterSchema = Schema.applyAliases(writerSchema, readerSchema);</span>
+<span class="nc" id="L116">    return (DatumReader&lt;D&gt;) getReaderFor(readerSchema, resolvedWriterSchema);</span>
+  }
+
+  private FieldReader getReaderFor(Schema readerSchema, Schema writerSchema) throws IOException {
+<span class="nc" id="L120">    Action resolvedAction = Resolver.resolve(writerSchema, readerSchema, data);</span>
+<span class="nc" id="L121">    return getReaderFor(resolvedAction, null);</span>
+  }
+
+  private FieldReader getReaderFor(Action action, Conversion&lt;?&gt; explicitConversion) throws IOException {
+<span class="nc" id="L125">    final FieldReader baseReader = getNonConvertedReader(action);</span>
+<span class="nc" id="L126">    return applyConversions(action.reader, baseReader, explicitConversion);</span>
+  }
+
+  private RecordReader createRecordReader(RecordAdjust action) throws IOException {
+    // record readers are created in a two-step process, first registering it, then
+    // initializing it,
+    // to prevent endless loops on recursive types
+<span class="nc" id="L133">    RecordReader recordReader = getRecordReaderFromCache(action.reader, action.writer);</span>
+<span class="nc" id="L134">    synchronized (recordReader) {</span>
+      // only need to initialize once
+<span class="nc bnc" id="L136" title="All 2 branches missed.">      if (recordReader.getInitializationStage() == Stage.NEW) {</span>
+<span class="nc" id="L137">        initializeRecordReader(recordReader, action);</span>
+      }
+<span class="nc" id="L139">    }</span>
+<span class="nc" id="L140">    return recordReader;</span>
+  }
+
+  private RecordReader initializeRecordReader(RecordReader recordReader, RecordAdjust action) throws IOException {
+<span class="nc" id="L144">    recordReader.startInitialization();</span>
+
+    // generate supplier for the new object instances
+<span class="nc" id="L147">    Object testInstance = action.instanceSupplier.newInstance(null, action.reader);</span>
+<span class="nc" id="L148">    IntFunction&lt;Conversion&lt;?&gt;&gt; conversionSupplier = getConversionSupplier(testInstance);</span>
+
+<span class="nc" id="L150">    ExecutionStep[] readSteps = new ExecutionStep[action.fieldActions.length + action.readerOrder.length</span>
+        - action.firstDefault];
+
+<span class="nc" id="L153">    int i = 0;</span>
+<span class="nc" id="L154">    int fieldCounter = 0;</span>
+    // compute what to do with writer's fields
+<span class="nc bnc" id="L156" title="All 2 branches missed.">    for (; i &lt; action.fieldActions.length; i++) {</span>
+<span class="nc" id="L157">      Action fieldAction = action.fieldActions[i];</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">      if (fieldAction instanceof Skip) {</span>
+<span class="nc" id="L159">        readSteps[i] = (r, decoder) -&gt; GenericDatumReader.skip(fieldAction.writer, decoder);</span>
+      } else {
+<span class="nc" id="L161">        Field readerField = action.readerOrder[fieldCounter++];</span>
+<span class="nc" id="L162">        Conversion&lt;?&gt; conversion = conversionSupplier.apply(readerField.pos());</span>
+<span class="nc" id="L163">        FieldReader reader = getReaderFor(fieldAction, conversion);</span>
+<span class="nc" id="L164">        readSteps[i] = createFieldSetter(readerField, reader);</span>
+      }
+    }
+
+    // add defaulting if required
+<span class="nc bnc" id="L169" title="All 2 branches missed.">    for (; i &lt; readSteps.length; i++) {</span>
+<span class="nc" id="L170">      readSteps[i] = getDefaultingStep(action.readerOrder[fieldCounter++]);</span>
+    }
+
+<span class="nc" id="L173">    recordReader.finishInitialization(readSteps, action.reader, action.instanceSupplier);</span>
+<span class="nc" id="L174">    return recordReader;</span>
+  }
+
+  private ExecutionStep createFieldSetter(Field field, FieldReader reader) {
+<span class="nc" id="L178">    int pos = field.pos();</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">    if (reader.canReuse()) {</span>
+<span class="nc" id="L180">      return (object, decoder) -&gt; {</span>
+<span class="nc" id="L181">        IndexedRecord record = (IndexedRecord) object;</span>
+<span class="nc" id="L182">        record.put(pos, reader.read(record.get(pos), decoder));</span>
+<span class="nc" id="L183">      };</span>
+    } else {
+<span class="nc" id="L185">      return (object, decoder) -&gt; {</span>
+<span class="nc" id="L186">        IndexedRecord record = (IndexedRecord) object;</span>
+<span class="nc" id="L187">        record.put(pos, reader.read(null, decoder));</span>
+<span class="nc" id="L188">      };</span>
+    }
+  }
+
+  private ExecutionStep getDefaultingStep(Schema.Field field) throws IOException {
+<span class="nc" id="L193">    Object defaultValue = data.getDefaultValue(field);</span>
+
+<span class="nc bnc" id="L195" title="All 2 branches missed.">    if (isObjectImmutable(defaultValue)) {</span>
+<span class="nc" id="L196">      return createFieldSetter(field, (old, d) -&gt; defaultValue);</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">    } else if (defaultValue instanceof Utf8) {</span>
+<span class="nc" id="L198">      return createFieldSetter(field, reusingReader((old, d) -&gt; readUtf8(old, (Utf8) defaultValue)));</span>
+<span class="nc bnc" id="L199" title="All 4 branches missed.">    } else if (defaultValue instanceof List &amp;&amp; ((List&lt;?&gt;) defaultValue).isEmpty()) {</span>
+<span class="nc" id="L200">      return createFieldSetter(field, reusingReader((old, d) -&gt; data.newArray(old, 0, field.schema())));</span>
+<span class="nc bnc" id="L201" title="All 4 branches missed.">    } else if (defaultValue instanceof Map &amp;&amp; ((Map&lt;?, ?&gt;) defaultValue).isEmpty()) {</span>
+<span class="nc" id="L202">      return createFieldSetter(field, reusingReader((old, d) -&gt; data.newMap(old, 0)));</span>
+    } else {
+<span class="nc" id="L204">      DatumReader&lt;Object&gt; datumReader = createDatumReader(field.schema());</span>
+<span class="nc" id="L205">      byte[] encoded = getEncodedValue(field);</span>
+<span class="nc" id="L206">      FieldReader fieldReader = reusingReader(</span>
+<span class="nc" id="L207">          (old, decoder) -&gt; datumReader.read(old, DecoderFactory.get().binaryDecoder(encoded, null)));</span>
+<span class="nc" id="L208">      return createFieldSetter(field, fieldReader);</span>
+    }
+  }
+
+  private boolean isObjectImmutable(Object object) {
+<span class="nc bnc" id="L213" title="All 8 branches missed.">    return object == null || object instanceof Number || object instanceof String || object instanceof GenericEnumSymbol</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        || object.getClass().isEnum();</span>
+  }
+
+  private Utf8 readUtf8(Object reuse, Utf8 newValue) {
+<span class="nc bnc" id="L218" title="All 2 branches missed.">    if (reuse instanceof Utf8) {</span>
+<span class="nc" id="L219">      Utf8 oldUtf8 = (Utf8) reuse;</span>
+<span class="nc" id="L220">      oldUtf8.set(newValue);</span>
+<span class="nc" id="L221">      return oldUtf8;</span>
+    } else {
+<span class="nc" id="L223">      return new Utf8(newValue);</span>
+    }
+  }
+
+  private byte[] getEncodedValue(Field field) throws IOException {
+<span class="nc" id="L228">    ByteArrayOutputStream out = new ByteArrayOutputStream();</span>
+<span class="nc" id="L229">    Encoder encoder = EncoderFactory.get().binaryEncoder(out, null);</span>
+
+<span class="nc" id="L231">    ResolvingGrammarGenerator.encode(encoder, field.schema(), Accessor.defaultValue(field));</span>
+<span class="nc" id="L232">    encoder.flush();</span>
+
+<span class="nc" id="L234">    return out.toByteArray();</span>
+  }
+
+  private IntFunction&lt;Conversion&lt;?&gt;&gt; getConversionSupplier(Object record) {
+<span class="nc bnc" id="L238" title="All 2 branches missed.">    if (record instanceof SpecificRecordBase) {</span>
+<span class="nc" id="L239">      return ((SpecificRecordBase) record)::getConversion;</span>
+    } else {
+<span class="nc" id="L241">      return index -&gt; null;</span>
+    }
+  }
+
+  private RecordReader getRecordReaderFromCache(Schema readerSchema, Schema writerSchema) {
+<span class="nc" id="L246">    return readerCache.computeIfAbsent(readerSchema, k -&gt; new WeakIdentityHashMap&lt;&gt;()).computeIfAbsent(writerSchema,</span>
+<span class="nc" id="L247">        k -&gt; new RecordReader());</span>
+  }
+
+  private FieldReader applyConversions(Schema readerSchema, FieldReader reader, Conversion&lt;?&gt; explicitConversion) {
+<span class="nc" id="L251">    Conversion&lt;?&gt; conversion = explicitConversion;</span>
+
+<span class="nc bnc" id="L253" title="All 2 branches missed.">    if (conversion == null) {</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">      if (readerSchema.getLogicalType() == null) {</span>
+<span class="nc" id="L255">        return reader;</span>
+      }
+<span class="nc" id="L257">      conversion = data.getConversionFor(readerSchema.getLogicalType());</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">      if (conversion == null) {</span>
+<span class="nc" id="L259">        return reader;</span>
+      }
+    }
+
+<span class="nc" id="L263">    Conversion&lt;?&gt; finalConversion = conversion;</span>
+<span class="nc" id="L264">    return (old, decoder) -&gt; Conversions.convertToLogicalType(reader.read(old, decoder), readerSchema,</span>
+<span class="nc" id="L265">        readerSchema.getLogicalType(), finalConversion);</span>
+  }
+
+  private FieldReader getNonConvertedReader(Action action) throws IOException {
+<span class="nc bnc" id="L269" title="All 9 branches missed.">    switch (action.type) {</span>
+    case CONTAINER:
+<span class="nc bnc" id="L271" title="All 3 branches missed.">      switch (action.reader.getType()) {</span>
+      case MAP:
+<span class="nc" id="L273">        return createMapReader(action.reader, (Container) action);</span>
+      case ARRAY:
+<span class="nc" id="L275">        return createArrayReader(action.reader, (Container) action);</span>
+      default:
+<span class="nc" id="L277">        throw new IllegalStateException(&quot;Error getting reader for action type &quot; + action.getClass());</span>
+      }
+    case DO_NOTHING:
+<span class="nc" id="L280">      return getReaderForBaseType(action.reader, action.writer);</span>
+    case RECORD:
+<span class="nc" id="L282">      return createRecordReader((RecordAdjust) action);</span>
+    case ENUM:
+<span class="nc" id="L284">      return createEnumReader((EnumAdjust) action);</span>
+    case PROMOTE:
+<span class="nc" id="L286">      return createPromotingReader((Promote) action);</span>
+    case WRITER_UNION:
+<span class="nc" id="L288">      return createUnionReader((WriterUnion) action);</span>
+    case READER_UNION:
+<span class="nc" id="L290">      return getReaderFor(((ReaderUnion) action).actualAction, null);</span>
+    case ERROR:
+<span class="nc" id="L292">      return (old, decoder) -&gt; {</span>
+<span class="nc" id="L293">        throw new AvroTypeException(action.toString());</span>
+      };
+    default:
+<span class="nc" id="L296">      throw new IllegalStateException(&quot;Error getting reader for action type &quot; + action.getClass());</span>
+    }
+  }
+
+  private FieldReader getReaderForBaseType(Schema readerSchema, Schema writerSchema) throws IOException {
+<span class="nc bnc" id="L301" title="All 10 branches missed.">    switch (readerSchema.getType()) {</span>
+    case NULL:
+<span class="nc" id="L303">      return (old, decoder) -&gt; {</span>
+<span class="nc" id="L304">        decoder.readNull();</span>
+<span class="nc" id="L305">        return null;</span>
+      };
+    case BOOLEAN:
+<span class="nc" id="L308">      return (old, decoder) -&gt; decoder.readBoolean();</span>
+    case STRING:
+<span class="nc" id="L310">      return createStringReader(readerSchema, writerSchema);</span>
+    case INT:
+<span class="nc" id="L312">      return (old, decoder) -&gt; decoder.readInt();</span>
+    case LONG:
+<span class="nc" id="L314">      return (old, decoder) -&gt; decoder.readLong();</span>
+    case FLOAT:
+<span class="nc" id="L316">      return (old, decoder) -&gt; decoder.readFloat();</span>
+    case DOUBLE:
+<span class="nc" id="L318">      return (old, decoder) -&gt; decoder.readDouble();</span>
+    case BYTES:
+<span class="nc" id="L320">      return createBytesReader();</span>
+    case FIXED:
+<span class="nc" id="L322">      return createFixedReader(readerSchema, writerSchema);</span>
+    case RECORD: // covered by action type
+    case UNION: // covered by action type
+    case ENUM: // covered by action type
+    case MAP: // covered by action type
+    case ARRAY: // covered by action type
+    default:
+<span class="nc" id="L329">      throw new IllegalStateException(&quot;Error getting reader for type &quot; + readerSchema.getFullName());</span>
+    }
+  }
+
+  private FieldReader createPromotingReader(Promote promote) throws IOException {
+<span class="nc bnc" id="L334" title="All 6 branches missed.">    switch (promote.reader.getType()) {</span>
+    case BYTES:
+<span class="nc" id="L336">      return (reuse, decoder) -&gt; ByteBuffer.wrap(decoder.readString(null).getBytes());</span>
+    case STRING:
+<span class="nc" id="L338">      return createBytesPromotingToStringReader(promote.reader);</span>
+    case LONG:
+<span class="nc" id="L340">      return (reuse, decoder) -&gt; (long) decoder.readInt();</span>
+    case FLOAT:
+<span class="nc bnc" id="L342" title="All 3 branches missed.">      switch (promote.writer.getType()) {</span>
+      case INT:
+<span class="nc" id="L344">        return (reuse, decoder) -&gt; (float) decoder.readInt();</span>
+      case LONG:
+<span class="nc" id="L346">        return (reuse, decoder) -&gt; (float) decoder.readLong();</span>
+      default:
+      }
+<span class="nc" id="L349">      break;</span>
+    case DOUBLE:
+<span class="nc bnc" id="L351" title="All 4 branches missed.">      switch (promote.writer.getType()) {</span>
+      case INT:
+<span class="nc" id="L353">        return (reuse, decoder) -&gt; (double) decoder.readInt();</span>
+      case LONG:
+<span class="nc" id="L355">        return (reuse, decoder) -&gt; (double) decoder.readLong();</span>
+      case FLOAT:
+<span class="nc" id="L357">        return (reuse, decoder) -&gt; (double) decoder.readFloat();</span>
+      default:
+      }
+<span class="nc" id="L360">      break;</span>
+    default:
+    }
+<span class="nc" id="L363">    throw new IllegalStateException(</span>
+<span class="nc" id="L364">        &quot;No promotion possible for type &quot; + promote.writer.getType() + &quot; to &quot; + promote.reader.getType());</span>
+  }
+
+  private FieldReader createStringReader(Schema readerSchema, Schema writerSchema) {
+<span class="nc" id="L368">    FieldReader stringReader = createSimpleStringReader(readerSchema);</span>
+<span class="nc bnc" id="L369" title="All 2 branches missed.">    if (isClassPropEnabled()) {</span>
+<span class="nc" id="L370">      return getTransformingStringReader(readerSchema.getProp(SpecificData.CLASS_PROP), stringReader);</span>
+    } else {
+<span class="nc" id="L372">      return stringReader;</span>
+    }
+  }
+
+  private FieldReader createSimpleStringReader(Schema readerSchema) {
+<span class="nc" id="L377">    String stringProperty = readerSchema.getProp(GenericData.STRING_PROP);</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">    if (GenericData.StringType.String.name().equals(stringProperty)) {</span>
+<span class="nc" id="L379">      return (old, decoder) -&gt; decoder.readString();</span>
+    } else {
+<span class="nc bnc" id="L381" title="All 2 branches missed.">      return (old, decoder) -&gt; decoder.readString(old instanceof Utf8 ? (Utf8) old : null);</span>
+    }
+  }
+
+  private FieldReader createBytesPromotingToStringReader(Schema readerSchema) {
+<span class="nc" id="L386">    String stringProperty = readerSchema.getProp(GenericData.STRING_PROP);</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">    if (GenericData.StringType.String.name().equals(stringProperty)) {</span>
+<span class="nc" id="L388">      return (old, decoder) -&gt; getStringFromByteBuffer(decoder.readBytes(null));</span>
+    } else {
+<span class="nc" id="L390">      return (old, decoder) -&gt; getUtf8FromByteBuffer(old, decoder.readBytes(null));</span>
+    }
+  }
+
+  private String getStringFromByteBuffer(ByteBuffer buffer) {
+<span class="nc" id="L395">    return new String(buffer.array(), buffer.position(), buffer.remaining(), StandardCharsets.UTF_8);</span>
+  }
+
+  private Utf8 getUtf8FromByteBuffer(Object old, ByteBuffer buffer) {
+<span class="nc bnc" id="L399" title="All 2 branches missed.">    return (old instanceof Utf8) ? ((Utf8) old).set(new Utf8(buffer.array())) : new Utf8(buffer.array());</span>
+  }
+
+  private FieldReader createUnionReader(WriterUnion action) throws IOException {
+<span class="nc" id="L403">    FieldReader[] unionReaders = new FieldReader[action.actions.length];</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">    for (int i = 0; i &lt; action.actions.length; i++) {</span>
+<span class="nc" id="L405">      unionReaders[i] = getReaderFor(action.actions[i], null);</span>
+    }
+<span class="nc" id="L407">    return createUnionReader(unionReaders);</span>
+  }
+
+  private FieldReader createUnionReader(FieldReader[] unionReaders) {
+<span class="nc" id="L411">    return reusingReader((reuse, decoder) -&gt; {</span>
+<span class="nc" id="L412">      final int selection = decoder.readIndex();</span>
+<span class="nc" id="L413">      return unionReaders[selection].read(null, decoder);</span>
+    });
+
+  }
+
+  private FieldReader createMapReader(Schema readerSchema, Container action) throws IOException {
+<span class="nc" id="L419">    FieldReader keyReader = createMapKeyReader(readerSchema);</span>
+<span class="nc" id="L420">    FieldReader valueReader = getReaderFor(action.elementAction, null);</span>
+<span class="nc" id="L421">    return new MapReader(keyReader, valueReader);</span>
+  }
+
+  private FieldReader createMapKeyReader(Schema readerSchema) {
+<span class="nc" id="L425">    FieldReader stringReader = createSimpleStringReader(readerSchema);</span>
+<span class="nc bnc" id="L426" title="All 2 branches missed.">    if (isKeyClassEnabled()) {</span>
+<span class="nc" id="L427">      return getTransformingStringReader(readerSchema.getProp(SpecificData.KEY_CLASS_PROP),</span>
+<span class="nc" id="L428">          createSimpleStringReader(readerSchema));</span>
+    } else {
+<span class="nc" id="L430">      return stringReader;</span>
+    }
+  }
+
+  private FieldReader getTransformingStringReader(String valueClass, FieldReader stringReader) {
+<span class="nc bnc" id="L435" title="All 2 branches missed.">    if (valueClass == null) {</span>
+<span class="nc" id="L436">      return stringReader;</span>
+    } else {
+<span class="nc" id="L438">      Function&lt;String, ?&gt; transformer = findClass(valueClass)</span>
+<span class="nc" id="L439">          .map(clazz -&gt; ReflectionUtil.getConstructorAsFunction(String.class, clazz)).orElse(null);</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">      if (transformer != null) {</span>
+<span class="nc" id="L441">        return (old, decoder) -&gt; transformer.apply((String) stringReader.read(null, decoder));</span>
+      }
+    }
+
+<span class="nc" id="L445">    return stringReader;</span>
+  }
+
+  private Optional&lt;Class&lt;?&gt;&gt; findClass(String clazz) {
+    try {
+<span class="nc" id="L450">      return Optional.of(data.getClassLoader().loadClass(clazz));</span>
+<span class="nc" id="L451">    } catch (ReflectiveOperationException e) {</span>
+<span class="nc" id="L452">      return Optional.empty();</span>
+    }
+  }
+
+  @SuppressWarnings(&quot;unchecked&quot;)
+  private FieldReader createArrayReader(Schema readerSchema, Container action) throws IOException {
+<span class="nc" id="L458">    FieldReader elementReader = getReaderFor(action.elementAction, null);</span>
+
+<span class="nc" id="L460">    return reusingReader((reuse, decoder) -&gt; {</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">      if (reuse instanceof GenericArray) {</span>
+<span class="nc" id="L462">        GenericArray&lt;Object&gt; reuseArray = (GenericArray&lt;Object&gt;) reuse;</span>
+<span class="nc" id="L463">        long l = decoder.readArrayStart();</span>
+<span class="nc" id="L464">        reuseArray.clear();</span>
+
+<span class="nc bnc" id="L466" title="All 2 branches missed.">        while (l &gt; 0) {</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">          for (long i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L468">            reuseArray.add(elementReader.read(reuseArray.peek(), decoder));</span>
+          }
+<span class="nc" id="L470">          l = decoder.arrayNext();</span>
+        }
+<span class="nc" id="L472">        return reuseArray;</span>
+      } else {
+<span class="nc" id="L474">        long l = decoder.readArrayStart();</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">        List&lt;Object&gt; array = (reuse instanceof List) ? (List&lt;Object&gt;) reuse</span>
+<span class="nc" id="L476">            : new GenericData.Array&lt;&gt;((int) l, readerSchema);</span>
+<span class="nc" id="L477">        array.clear();</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">        while (l &gt; 0) {</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">          for (long i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L480">            array.add(elementReader.read(null, decoder));</span>
+          }
+<span class="nc" id="L482">          l = decoder.arrayNext();</span>
+        }
+<span class="nc" id="L484">        return array;</span>
+      }
+    });
+  }
+
+  private FieldReader createEnumReader(EnumAdjust action) {
+<span class="nc" id="L490">    return reusingReader((reuse, decoder) -&gt; {</span>
+<span class="nc" id="L491">      int index = decoder.readEnum();</span>
+<span class="nc" id="L492">      Object resultObject = action.values[index];</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">      if (resultObject == null) {</span>
+<span class="nc" id="L494">        throw new AvroTypeException(&quot;No match for &quot; + action.writer.getEnumSymbols().get(index));</span>
+      }
+<span class="nc" id="L496">      return resultObject;</span>
+    });
+  }
+
+  private FieldReader createFixedReader(Schema readerSchema, Schema writerSchema) {
+<span class="nc" id="L501">    return reusingReader((reuse, decoder) -&gt; {</span>
+<span class="nc" id="L502">      GenericFixed fixed = (GenericFixed) data.createFixed(reuse, readerSchema);</span>
+<span class="nc" id="L503">      decoder.readFixed(fixed.bytes(), 0, readerSchema.getFixedSize());</span>
+<span class="nc" id="L504">      return fixed;</span>
+    });
+  }
+
+  private FieldReader createBytesReader() {
+<span class="nc" id="L509">    return reusingReader(</span>
+<span class="nc bnc" id="L510" title="All 2 branches missed.">        (reuse, decoder) -&gt; decoder.readBytes(reuse instanceof ByteBuffer ? (ByteBuffer) reuse : null));</span>
+  }
+
+  public static FieldReader reusingReader(ReusingFieldReader reader) {
+<span class="nc" id="L514">    return reader;</span>
+  }
+
+  public interface FieldReader extends DatumReader&lt;Object&gt; {
+    @Override
+    public Object read(Object reuse, Decoder decoder) throws IOException;
+
+    public default boolean canReuse() {
+<span class="nc" id="L522">      return false;</span>
+    }
+
+    @Override
+    default void setSchema(Schema schema) {
+<span class="nc" id="L527">      throw new UnsupportedOperationException();</span>
+    }
+  }
+
+  public interface ReusingFieldReader extends FieldReader {
+    @Override
+    public default boolean canReuse() {
+<span class="nc" id="L534">      return true;</span>
+    }
+  }
+
+<span class="nc" id="L538">  public static class RecordReader implements FieldReader {</span>
+<span class="nc" id="L539">    public enum Stage {</span>
+<span class="nc" id="L540">      NEW, INITIALIZING, INITIALIZED</span>
+    }
+
+    private ExecutionStep[] readSteps;
+    private InstanceSupplier supplier;
+    private Schema schema;
+<span class="nc" id="L546">    private Stage stage = Stage.NEW;</span>
+
+    public Stage getInitializationStage() {
+<span class="nc" id="L549">      return this.stage;</span>
+    }
+
+    public void reset() {
+<span class="nc" id="L553">      this.stage = Stage.NEW;</span>
+<span class="nc" id="L554">    }</span>
+
+    public void startInitialization() {
+<span class="nc" id="L557">      this.stage = Stage.INITIALIZING;</span>
+<span class="nc" id="L558">    }</span>
+
+    public void finishInitialization(ExecutionStep[] readSteps, Schema schema, InstanceSupplier supp) {
+<span class="nc" id="L561">      this.readSteps = readSteps;</span>
+<span class="nc" id="L562">      this.schema = schema;</span>
+<span class="nc" id="L563">      this.supplier = supp;</span>
+<span class="nc" id="L564">      this.stage = Stage.INITIALIZED;</span>
+<span class="nc" id="L565">    }</span>
+
+    @Override
+    public boolean canReuse() {
+<span class="nc" id="L569">      return true;</span>
+    }
+
+    @Override
+    public Object read(Object reuse, Decoder decoder) throws IOException {
+<span class="nc" id="L574">      Object object = supplier.newInstance(reuse, schema);</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">      for (ExecutionStep thisStep : readSteps) {</span>
+<span class="nc" id="L576">        thisStep.execute(object, decoder);</span>
+      }
+<span class="nc" id="L578">      return object;</span>
+    }
+  }
+
+  public static class MapReader implements FieldReader {
+
+    private final FieldReader keyReader;
+    private final FieldReader valueReader;
+
+<span class="nc" id="L587">    public MapReader(FieldReader keyReader, FieldReader valueReader) {</span>
+<span class="nc" id="L588">      this.keyReader = keyReader;</span>
+<span class="nc" id="L589">      this.valueReader = valueReader;</span>
+<span class="nc" id="L590">    }</span>
+
+    @Override
+    public Object read(Object reuse, Decoder decoder) throws IOException {
+<span class="nc" id="L594">      long l = decoder.readMapStart();</span>
+<span class="nc" id="L595">      Map&lt;Object, Object&gt; targetMap = new HashMap&lt;&gt;();</span>
+
+<span class="nc bnc" id="L597" title="All 2 branches missed.">      while (l &gt; 0) {</span>
+<span class="nc bnc" id="L598" title="All 2 branches missed.">        for (int i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L599">          Object key = keyReader.read(null, decoder);</span>
+<span class="nc" id="L600">          Object value = valueReader.read(null, decoder);</span>
+<span class="nc" id="L601">          targetMap.put(key, value);</span>
+        }
+<span class="nc" id="L603">        l = decoder.mapNext();</span>
+      }
+
+<span class="nc" id="L606">      return targetMap;</span>
+    }
+  }
+
+  public interface ExecutionStep {
+    public void execute(Object record, Decoder decoder) throws IOException;
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

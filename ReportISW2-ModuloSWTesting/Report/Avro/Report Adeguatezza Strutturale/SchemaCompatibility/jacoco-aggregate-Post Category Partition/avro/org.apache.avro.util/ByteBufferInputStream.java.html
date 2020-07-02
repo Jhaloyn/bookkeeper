@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ByteBufferInputStream.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.util</a> &gt; <span class="el_source">ByteBufferInputStream.java</span></div><h1>ByteBufferInputStream.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.avro.util;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.util.List;
+
+/** Utility to present {@link ByteBuffer} data as an {@link InputStream}. */
+public class ByteBufferInputStream extends InputStream {
+  private List&lt;ByteBuffer&gt; buffers;
+  private int current;
+
+<span class="nc" id="L31">  public ByteBufferInputStream(List&lt;ByteBuffer&gt; buffers) {</span>
+<span class="nc" id="L32">    this.buffers = buffers;</span>
+<span class="nc" id="L33">  }</span>
+
+  /**
+   * @see InputStream#read()
+   */
+  @Override
+  public int read() throws IOException {
+<span class="nc" id="L40">    ByteBuffer buffer = getBuffer();</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">    if (buffer == null) {</span>
+<span class="nc" id="L42">      return -1;</span>
+    }
+<span class="nc" id="L44">    return buffer.get() &amp; 0xff;</span>
+  }
+
+  /**
+   * @see InputStream#read(byte[], int, int)
+   */
+  @Override
+  public int read(byte[] b, int off, int len) throws IOException {
+<span class="nc bnc" id="L52" title="All 2 branches missed.">    if (len == 0)</span>
+<span class="nc" id="L53">      return 0;</span>
+<span class="nc" id="L54">    ByteBuffer buffer = getBuffer();</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">    if (buffer == null) {</span>
+<span class="nc" id="L56">      return -1;</span>
+    }
+<span class="nc" id="L58">    int remaining = buffer.remaining();</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">    if (len &gt; remaining) {</span>
+<span class="nc" id="L60">      buffer.get(b, off, remaining);</span>
+<span class="nc" id="L61">      return remaining;</span>
+    } else {
+<span class="nc" id="L63">      buffer.get(b, off, len);</span>
+<span class="nc" id="L64">      return len;</span>
+    }
+  }
+
+  /**
+   * Read a buffer from the input without copying, if possible.
+   */
+  public ByteBuffer readBuffer(int length) throws IOException {
+<span class="nc bnc" id="L72" title="All 2 branches missed.">    if (length == 0)</span>
+<span class="nc" id="L73">      return ByteBuffer.allocate(0);</span>
+<span class="nc" id="L74">    ByteBuffer buffer = getBuffer();</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">    if (buffer == null) {</span>
+<span class="nc" id="L76">      return ByteBuffer.allocate(0);</span>
+    }
+<span class="nc bnc" id="L78" title="All 2 branches missed.">    if (buffer.remaining() == length) { // can return current as-is?</span>
+<span class="nc" id="L79">      current++;</span>
+<span class="nc" id="L80">      return buffer; // return w/o copying</span>
+    }
+    // punt: allocate a new buffer &amp; copy into it
+<span class="nc" id="L83">    ByteBuffer result = ByteBuffer.allocate(length);</span>
+<span class="nc" id="L84">    int start = 0;</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">    while (start &lt; length)</span>
+<span class="nc" id="L86">      start += read(result.array(), start, length - start);</span>
+<span class="nc" id="L87">    return result;</span>
+  }
+
+  /**
+   * Returns the next non-empty buffer.
+   */
+  private ByteBuffer getBuffer() throws IOException {
+<span class="nc bnc" id="L94" title="All 2 branches missed.">    while (current &lt; buffers.size()) {</span>
+<span class="nc" id="L95">      ByteBuffer buffer = buffers.get(current);</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">      if (buffer.hasRemaining())</span>
+<span class="nc" id="L97">        return buffer;</span>
+<span class="nc" id="L98">      current++;</span>
+<span class="nc" id="L99">    }</span>
+<span class="nc" id="L100">    return null;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

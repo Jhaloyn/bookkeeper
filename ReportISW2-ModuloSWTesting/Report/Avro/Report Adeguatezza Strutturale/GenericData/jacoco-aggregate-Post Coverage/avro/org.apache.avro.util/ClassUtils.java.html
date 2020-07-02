@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ClassUtils.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.util</a> &gt; <span class="el_source">ClassUtils.java</span></div><h1>ClassUtils.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.util;
+
+public class ClassUtils {
+
+  private ClassUtils() {
+  }
+
+  /**
+   * Loads a class using the class loader. 1. The class loader of the current
+   * class is being used. 2. The thread context class loader is being used. If
+   * both approaches fail, returns null.
+   *
+   * @param className The name of the class to load.
+   * @return The class or null if no class loader could load the class.
+   */
+  public static Class&lt;?&gt; forName(String className) throws ClassNotFoundException {
+<span class="nc" id="L34">    return ClassUtils.forName(ClassUtils.class, className);</span>
+  }
+
+  /**
+   * Loads a class using the class loader. 1. The class loader of the context
+   * class is being used. 2. The thread context class loader is being used. If
+   * both approaches fail, returns null.
+   *
+   * @param contextClass The name of a context class to use.
+   * @param className    The name of the class to load
+   * @return The class or null if no class loader could load the class.
+   */
+  public static Class&lt;?&gt; forName(Class&lt;?&gt; contextClass, String className) throws ClassNotFoundException {
+<span class="nc" id="L47">    Class&lt;?&gt; c = null;</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">    if (contextClass.getClassLoader() != null) {</span>
+<span class="nc" id="L49">      c = forName(className, contextClass.getClassLoader());</span>
+    }
+<span class="nc bnc" id="L51" title="All 4 branches missed.">    if (c == null &amp;&amp; Thread.currentThread().getContextClassLoader() != null) {</span>
+<span class="nc" id="L52">      c = forName(className, Thread.currentThread().getContextClassLoader());</span>
+    }
+<span class="nc bnc" id="L54" title="All 2 branches missed.">    if (c == null) {</span>
+<span class="nc" id="L55">      throw new ClassNotFoundException(&quot;Failed to load class&quot; + className);</span>
+    }
+<span class="nc" id="L57">    return c;</span>
+  }
+
+  /**
+   * Loads a class using the class loader. 1. The class loader of the context
+   * class is being used. 2. The thread context class loader is being used. If
+   * both approaches fail, returns null.
+   *
+   * @param classLoader The classloader to use.
+   * @param className   The name of the class to load
+   * @return The class or null if no class loader could load the class.
+   */
+  public static Class&lt;?&gt; forName(ClassLoader classLoader, String className) throws ClassNotFoundException {
+<span class="nc" id="L70">    Class&lt;?&gt; c = null;</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if (classLoader != null) {</span>
+<span class="nc" id="L72">      c = forName(className, classLoader);</span>
+    }
+<span class="nc bnc" id="L74" title="All 4 branches missed.">    if (c == null &amp;&amp; Thread.currentThread().getContextClassLoader() != null) {</span>
+<span class="nc" id="L75">      c = forName(className, Thread.currentThread().getContextClassLoader());</span>
+    }
+<span class="nc bnc" id="L77" title="All 2 branches missed.">    if (c == null) {</span>
+<span class="nc" id="L78">      throw new ClassNotFoundException(&quot;Failed to load class&quot; + className);</span>
+    }
+<span class="nc" id="L80">    return c;</span>
+  }
+
+  /**
+   * Loads a {@link Class} from the specified {@link ClassLoader} without throwing
+   * {@link ClassNotFoundException}.
+   *
+   * @param className
+   * @param classLoader
+   * @return
+   */
+  private static Class&lt;?&gt; forName(String className, ClassLoader classLoader) {
+<span class="nc" id="L92">    Class&lt;?&gt; c = null;</span>
+<span class="nc bnc" id="L93" title="All 4 branches missed.">    if (classLoader != null &amp;&amp; className != null) {</span>
+      try {
+<span class="nc" id="L95">        c = Class.forName(className, true, classLoader);</span>
+<span class="nc" id="L96">      } catch (ClassNotFoundException e) {</span>
+        // Ignore and return null
+<span class="nc" id="L98">      }</span>
+    }
+<span class="nc" id="L100">    return c;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

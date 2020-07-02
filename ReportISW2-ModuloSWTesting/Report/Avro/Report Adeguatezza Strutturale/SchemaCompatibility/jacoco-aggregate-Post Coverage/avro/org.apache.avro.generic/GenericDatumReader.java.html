@@ -1,0 +1,625 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>GenericDatumReader.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.generic</a> &gt; <span class="el_source">GenericDatumReader.java</span></div><h1>GenericDatumReader.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.generic;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.Map;
+
+import org.apache.avro.AvroRuntimeException;
+import org.apache.avro.Conversion;
+import org.apache.avro.Conversions;
+import org.apache.avro.LogicalType;
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.Decoder;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.ResolvingDecoder;
+import org.apache.avro.util.Utf8;
+import org.apache.avro.util.WeakIdentityHashMap;
+
+/** {@link DatumReader} for generic Java objects. */
+public class GenericDatumReader&lt;D&gt; implements DatumReader&lt;D&gt; {
+  private final GenericData data;
+  private Schema actual;
+  private Schema expected;
+<span class="nc" id="L47">  private DatumReader&lt;D&gt; fastDatumReader = null;</span>
+
+<span class="nc" id="L49">  private ResolvingDecoder creatorResolver = null;</span>
+  private final Thread creator;
+
+  public GenericDatumReader() {
+<span class="nc" id="L53">    this(null, null, GenericData.get());</span>
+<span class="nc" id="L54">  }</span>
+
+  /** Construct where the writer's and reader's schemas are the same. */
+  public GenericDatumReader(Schema schema) {
+<span class="nc" id="L58">    this(schema, schema, GenericData.get());</span>
+<span class="nc" id="L59">  }</span>
+
+  /** Construct given writer's and reader's schema. */
+  public GenericDatumReader(Schema writer, Schema reader) {
+<span class="nc" id="L63">    this(writer, reader, GenericData.get());</span>
+<span class="nc" id="L64">  }</span>
+
+  public GenericDatumReader(Schema writer, Schema reader, GenericData data) {
+<span class="nc" id="L67">    this(data);</span>
+<span class="nc" id="L68">    this.actual = writer;</span>
+<span class="nc" id="L69">    this.expected = reader;</span>
+<span class="nc" id="L70">  }</span>
+
+<span class="nc" id="L72">  protected GenericDatumReader(GenericData data) {</span>
+<span class="nc" id="L73">    this.data = data;</span>
+<span class="nc" id="L74">    this.creator = Thread.currentThread();</span>
+<span class="nc" id="L75">  }</span>
+
+  /** Return the {@link GenericData} implementation. */
+  public GenericData getData() {
+<span class="nc" id="L79">    return data;</span>
+  }
+
+  /** Return the writer's schema. */
+  public Schema getSchema() {
+<span class="nc" id="L84">    return actual;</span>
+  }
+
+  @Override
+  public void setSchema(Schema writer) {
+<span class="nc" id="L89">    this.actual = writer;</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">    if (expected == null) {</span>
+<span class="nc" id="L91">      expected = actual;</span>
+    }
+<span class="nc" id="L93">    creatorResolver = null;</span>
+<span class="nc" id="L94">    fastDatumReader = null;</span>
+<span class="nc" id="L95">  }</span>
+
+  /** Get the reader's schema. */
+  public Schema getExpected() {
+<span class="nc" id="L99">    return expected;</span>
+  }
+
+  /** Set the reader's schema. */
+  public void setExpected(Schema reader) {
+<span class="nc" id="L104">    this.expected = reader;</span>
+<span class="nc" id="L105">    creatorResolver = null;</span>
+<span class="nc" id="L106">  }</span>
+
+<span class="nc" id="L108">  private static final ThreadLocal&lt;Map&lt;Schema, Map&lt;Schema, ResolvingDecoder&gt;&gt;&gt; RESOLVER_CACHE = ThreadLocal</span>
+<span class="nc" id="L109">      .withInitial(WeakIdentityHashMap::new);</span>
+
+  /**
+   * Gets a resolving decoder for use by this GenericDatumReader. Unstable API.
+   * Currently uses a thread local cache to prevent constructing the resolvers too
+   * often, because that is very expensive.
+   */
+  protected final ResolvingDecoder getResolver(Schema actual, Schema expected) throws IOException {
+<span class="nc" id="L117">    Thread currThread = Thread.currentThread();</span>
+    ResolvingDecoder resolver;
+<span class="nc bnc" id="L119" title="All 4 branches missed.">    if (currThread == creator &amp;&amp; creatorResolver != null) {</span>
+<span class="nc" id="L120">      return creatorResolver;</span>
+    }
+
+<span class="nc" id="L123">    Map&lt;Schema, ResolvingDecoder&gt; cache = RESOLVER_CACHE.get().get(actual);</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">    if (cache == null) {</span>
+<span class="nc" id="L125">      cache = new WeakIdentityHashMap&lt;&gt;();</span>
+<span class="nc" id="L126">      RESOLVER_CACHE.get().put(actual, cache);</span>
+    }
+<span class="nc" id="L128">    resolver = cache.get(expected);</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">    if (resolver == null) {</span>
+<span class="nc" id="L130">      resolver = DecoderFactory.get().resolvingDecoder(Schema.applyAliases(actual, expected), expected, null);</span>
+<span class="nc" id="L131">      cache.put(expected, resolver);</span>
+    }
+
+<span class="nc bnc" id="L134" title="All 2 branches missed.">    if (currThread == creator) {</span>
+<span class="nc" id="L135">      creatorResolver = resolver;</span>
+    }
+
+<span class="nc" id="L138">    return resolver;</span>
+  }
+
+  @Override
+  @SuppressWarnings(&quot;unchecked&quot;)
+  public D read(D reuse, Decoder in) throws IOException {
+<span class="nc bnc" id="L144" title="All 2 branches missed.">    if (data.isFastReaderEnabled()) {</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">      if (this.fastDatumReader == null) {</span>
+<span class="nc" id="L146">        this.fastDatumReader = data.getFastReaderBuilder().createDatumReader(actual, expected);</span>
+      }
+<span class="nc" id="L148">      return fastDatumReader.read(reuse, in);</span>
+    }
+
+<span class="nc" id="L151">    ResolvingDecoder resolver = getResolver(actual, expected);</span>
+<span class="nc" id="L152">    resolver.configure(in);</span>
+<span class="nc" id="L153">    D result = (D) read(reuse, expected, resolver);</span>
+<span class="nc" id="L154">    resolver.drain();</span>
+<span class="nc" id="L155">    return result;</span>
+  }
+
+  /** Called to read data. */
+  protected Object read(Object old, Schema expected, ResolvingDecoder in) throws IOException {
+<span class="nc" id="L160">    Object datum = readWithoutConversion(old, expected, in);</span>
+<span class="nc" id="L161">    LogicalType logicalType = expected.getLogicalType();</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">    if (logicalType != null) {</span>
+<span class="nc" id="L163">      Conversion&lt;?&gt; conversion = getData().getConversionFor(logicalType);</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">      if (conversion != null) {</span>
+<span class="nc" id="L165">        return convert(datum, expected, logicalType, conversion);</span>
+      }
+    }
+<span class="nc" id="L168">    return datum;</span>
+  }
+
+  protected Object readWithConversion(Object old, Schema expected, LogicalType logicalType, Conversion&lt;?&gt; conversion,
+      ResolvingDecoder in) throws IOException {
+<span class="nc" id="L173">    return convert(readWithoutConversion(old, expected, in), expected, logicalType, conversion);</span>
+  }
+
+  protected Object readWithoutConversion(Object old, Schema expected, ResolvingDecoder in) throws IOException {
+<span class="nc bnc" id="L177" title="All 15 branches missed.">    switch (expected.getType()) {</span>
+    case RECORD:
+<span class="nc" id="L179">      return readRecord(old, expected, in);</span>
+    case ENUM:
+<span class="nc" id="L181">      return readEnum(expected, in);</span>
+    case ARRAY:
+<span class="nc" id="L183">      return readArray(old, expected, in);</span>
+    case MAP:
+<span class="nc" id="L185">      return readMap(old, expected, in);</span>
+    case UNION:
+<span class="nc" id="L187">      return read(old, expected.getTypes().get(in.readIndex()), in);</span>
+    case FIXED:
+<span class="nc" id="L189">      return readFixed(old, expected, in);</span>
+    case STRING:
+<span class="nc" id="L191">      return readString(old, expected, in);</span>
+    case BYTES:
+<span class="nc" id="L193">      return readBytes(old, expected, in);</span>
+    case INT:
+<span class="nc" id="L195">      return readInt(old, expected, in);</span>
+    case LONG:
+<span class="nc" id="L197">      return in.readLong();</span>
+    case FLOAT:
+<span class="nc" id="L199">      return in.readFloat();</span>
+    case DOUBLE:
+<span class="nc" id="L201">      return in.readDouble();</span>
+    case BOOLEAN:
+<span class="nc" id="L203">      return in.readBoolean();</span>
+    case NULL:
+<span class="nc" id="L205">      in.readNull();</span>
+<span class="nc" id="L206">      return null;</span>
+    default:
+<span class="nc" id="L208">      throw new AvroRuntimeException(&quot;Unknown type: &quot; + expected);</span>
+    }
+  }
+
+  /**
+   * Convert a underlying representation of a logical type (such as a ByteBuffer)
+   * to a higher level object (such as a BigDecimal).
+   *
+   * @throws IllegalArgumentException if a null schema or logicalType is passed in
+   *                                  while datum and conversion are not null.
+   *                                  Please be noticed that the exception type
+   *                                  has changed. With version 1.8.0 and earlier,
+   *                                  in above circumstance, the exception thrown
+   *                                  out depends on the implementation of
+   *                                  conversion (most likely a
+   *                                  NullPointerException). Now, an
+   *                                  IllegalArgumentException will be thrown out
+   *                                  instead.
+   */
+  protected Object convert(Object datum, Schema schema, LogicalType type, Conversion&lt;?&gt; conversion) {
+<span class="nc" id="L228">    return Conversions.convertToLogicalType(datum, schema, type, conversion);</span>
+  }
+
+  /**
+   * Called to read a record instance. May be overridden for alternate record
+   * representations.
+   */
+  protected Object readRecord(Object old, Schema expected, ResolvingDecoder in) throws IOException {
+<span class="nc" id="L236">    final Object record = data.newRecord(old, expected);</span>
+<span class="nc" id="L237">    final Object state = data.getRecordState(record, expected);</span>
+
+<span class="nc bnc" id="L239" title="All 2 branches missed.">    for (Field field : in.readFieldOrder()) {</span>
+<span class="nc" id="L240">      int pos = field.pos();</span>
+<span class="nc" id="L241">      String name = field.name();</span>
+<span class="nc" id="L242">      Object oldDatum = null;</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">      if (old != null) {</span>
+<span class="nc" id="L244">        oldDatum = data.getField(record, name, pos, state);</span>
+      }
+
+<span class="nc" id="L247">      readField(record, field, oldDatum, in, state);</span>
+    }
+
+<span class="nc" id="L250">    return record;</span>
+  }
+
+  /**
+   * Called to read a single field of a record. May be overridden for more
+   * efficient or alternate implementations.
+   */
+  protected void readField(Object record, Field field, Object oldDatum, ResolvingDecoder in, Object state)
+      throws IOException {
+<span class="nc" id="L259">    data.setField(record, field.name(), field.pos(), read(oldDatum, field.schema(), in), state);</span>
+<span class="nc" id="L260">  }</span>
+
+  /**
+   * Called to read an enum value. May be overridden for alternate enum
+   * representations. By default, returns a GenericEnumSymbol.
+   */
+  protected Object readEnum(Schema expected, Decoder in) throws IOException {
+<span class="nc" id="L267">    return createEnum(expected.getEnumSymbols().get(in.readEnum()), expected);</span>
+  }
+
+  /**
+   * Called to create an enum value. May be overridden for alternate enum
+   * representations. By default, returns a GenericEnumSymbol.
+   */
+  protected Object createEnum(String symbol, Schema schema) {
+<span class="nc" id="L275">    return data.createEnum(symbol, schema);</span>
+  }
+
+  /**
+   * Called to read an array instance. May be overridden for alternate array
+   * representations.
+   */
+  protected Object readArray(Object old, Schema expected, ResolvingDecoder in) throws IOException {
+<span class="nc" id="L283">    Schema expectedType = expected.getElementType();</span>
+<span class="nc" id="L284">    long l = in.readArrayStart();</span>
+<span class="nc" id="L285">    long base = 0;</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">    if (l &gt; 0) {</span>
+<span class="nc" id="L287">      LogicalType logicalType = expectedType.getLogicalType();</span>
+<span class="nc" id="L288">      Conversion&lt;?&gt; conversion = getData().getConversionFor(logicalType);</span>
+<span class="nc" id="L289">      Object array = newArray(old, (int) l, expected);</span>
+      do {
+<span class="nc bnc" id="L291" title="All 4 branches missed.">        if (logicalType != null &amp;&amp; conversion != null) {</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">          for (long i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L293">            addToArray(array, base + i,</span>
+<span class="nc" id="L294">                readWithConversion(peekArray(array), expectedType, logicalType, conversion, in));</span>
+          }
+        } else {
+<span class="nc bnc" id="L297" title="All 2 branches missed.">          for (long i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L298">            addToArray(array, base + i, readWithoutConversion(peekArray(array), expectedType, in));</span>
+          }
+        }
+<span class="nc" id="L301">        base += l;</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">      } while ((l = in.arrayNext()) &gt; 0);</span>
+<span class="nc" id="L303">      return pruneArray(array);</span>
+    } else {
+<span class="nc" id="L305">      return pruneArray(newArray(old, 0, expected));</span>
+    }
+  }
+
+  private Object pruneArray(Object object) {
+<span class="nc bnc" id="L310" title="All 2 branches missed.">    if (object instanceof GenericArray&lt;?&gt;) {</span>
+<span class="nc" id="L311">      ((GenericArray&lt;?&gt;) object).prune();</span>
+    }
+<span class="nc" id="L313">    return object;</span>
+  }
+
+  /**
+   * Called by the default implementation of {@link #readArray} to retrieve a
+   * value from a reused instance. The default implementation is for
+   * {@link GenericArray}.
+   */
+  @SuppressWarnings(&quot;unchecked&quot;)
+  protected Object peekArray(Object array) {
+<span class="nc bnc" id="L323" title="All 2 branches missed.">    return (array instanceof GenericArray) ? ((GenericArray) array).peek() : null;</span>
+  }
+
+  /**
+   * Called by the default implementation of {@link #readArray} to add a value.
+   * The default implementation is for {@link Collection}.
+   */
+  @SuppressWarnings(&quot;unchecked&quot;)
+  protected void addToArray(Object array, long pos, Object e) {
+<span class="nc" id="L332">    ((Collection) array).add(e);</span>
+<span class="nc" id="L333">  }</span>
+
+  /**
+   * Called to read a map instance. May be overridden for alternate map
+   * representations.
+   */
+  protected Object readMap(Object old, Schema expected, ResolvingDecoder in) throws IOException {
+<span class="nc" id="L340">    Schema eValue = expected.getValueType();</span>
+<span class="nc" id="L341">    long l = in.readMapStart();</span>
+<span class="nc" id="L342">    LogicalType logicalType = eValue.getLogicalType();</span>
+<span class="nc" id="L343">    Conversion&lt;?&gt; conversion = getData().getConversionFor(logicalType);</span>
+<span class="nc" id="L344">    Object map = newMap(old, (int) l);</span>
+<span class="nc bnc" id="L345" title="All 2 branches missed.">    if (l &gt; 0) {</span>
+      do {
+<span class="nc bnc" id="L347" title="All 4 branches missed.">        if (logicalType != null &amp;&amp; conversion != null) {</span>
+<span class="nc bnc" id="L348" title="All 2 branches missed.">          for (int i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L349">            addToMap(map, readMapKey(null, expected, in),</span>
+<span class="nc" id="L350">                readWithConversion(null, eValue, logicalType, conversion, in));</span>
+          }
+        } else {
+<span class="nc bnc" id="L353" title="All 2 branches missed.">          for (int i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L354">            addToMap(map, readMapKey(null, expected, in), readWithoutConversion(null, eValue, in));</span>
+          }
+        }
+<span class="nc bnc" id="L357" title="All 2 branches missed.">      } while ((l = in.mapNext()) &gt; 0);</span>
+    }
+<span class="nc" id="L359">    return map;</span>
+  }
+
+  /**
+   * Called by the default implementation of {@link #readMap} to read a key value.
+   * The default implementation returns delegates to
+   * {@link #readString(Object, org.apache.avro.io.Decoder)}.
+   */
+  protected Object readMapKey(Object old, Schema expected, Decoder in) throws IOException {
+<span class="nc" id="L368">    return readString(old, expected, in);</span>
+  }
+
+  /**
+   * Called by the default implementation of {@link #readMap} to add a key/value
+   * pair. The default implementation is for {@link Map}.
+   */
+  @SuppressWarnings(&quot;unchecked&quot;)
+  protected void addToMap(Object map, Object key, Object value) {
+<span class="nc" id="L377">    ((Map) map).put(key, value);</span>
+<span class="nc" id="L378">  }</span>
+
+  /**
+   * Called to read a fixed value. May be overridden for alternate fixed
+   * representations. By default, returns {@link GenericFixed}.
+   */
+  protected Object readFixed(Object old, Schema expected, Decoder in) throws IOException {
+<span class="nc" id="L385">    GenericFixed fixed = (GenericFixed) data.createFixed(old, expected);</span>
+<span class="nc" id="L386">    in.readFixed(fixed.bytes(), 0, expected.getFixedSize());</span>
+<span class="nc" id="L387">    return fixed;</span>
+  }
+
+  /**
+   * Called to create an fixed value. May be overridden for alternate fixed
+   * representations. By default, returns {@link GenericFixed}.
+   *
+   * @deprecated As of Avro 1.6.0 this method has been moved to
+   *             {@link GenericData#createFixed(Object, Schema)}
+   */
+  @Deprecated
+  protected Object createFixed(Object old, Schema schema) {
+<span class="nc" id="L399">    return data.createFixed(old, schema);</span>
+  }
+
+  /**
+   * Called to create an fixed value. May be overridden for alternate fixed
+   * representations. By default, returns {@link GenericFixed}.
+   *
+   * @deprecated As of Avro 1.6.0 this method has been moved to
+   *             {@link GenericData#createFixed(Object, byte[], Schema)}
+   */
+  @Deprecated
+  protected Object createFixed(Object old, byte[] bytes, Schema schema) {
+<span class="nc" id="L411">    return data.createFixed(old, bytes, schema);</span>
+  }
+
+  /**
+   * Called to create new record instances. Subclasses may override to use a
+   * different record implementation. The returned instance must conform to the
+   * schema provided. If the old object contains fields not present in the schema,
+   * they should either be removed from the old object, or it should create a new
+   * instance that conforms to the schema. By default, this returns a
+   * {@link GenericData.Record}.
+   *
+   * @deprecated As of Avro 1.6.0 this method has been moved to
+   *             {@link GenericData#newRecord(Object, Schema)}
+   */
+  @Deprecated
+  protected Object newRecord(Object old, Schema schema) {
+<span class="nc" id="L427">    return data.newRecord(old, schema);</span>
+  }
+
+  /**
+   * Called to create new array instances. Subclasses may override to use a
+   * different array implementation. By default, this returns a
+   * {@link GenericData.Array}.
+   */
+  @SuppressWarnings(&quot;unchecked&quot;)
+  protected Object newArray(Object old, int size, Schema schema) {
+<span class="nc" id="L437">    return data.newArray(old, size, schema);</span>
+  }
+
+  /**
+   * Called to create new array instances. Subclasses may override to use a
+   * different map implementation. By default, this returns a {@link HashMap}.
+   */
+  @SuppressWarnings(&quot;unchecked&quot;)
+  protected Object newMap(Object old, int size) {
+<span class="nc" id="L446">    return data.newMap(old, size);</span>
+  }
+
+  /**
+   * Called to read strings. Subclasses may override to use a different string
+   * representation. By default, this calls {@link #readString(Object,Decoder)}.
+   */
+  protected Object readString(Object old, Schema expected, Decoder in) throws IOException {
+<span class="nc" id="L454">    Class stringClass = getStringClass(expected);</span>
+<span class="nc bnc" id="L455" title="All 2 branches missed.">    if (stringClass == String.class) {</span>
+<span class="nc" id="L456">      return in.readString();</span>
+    }
+<span class="nc bnc" id="L458" title="All 2 branches missed.">    if (stringClass == CharSequence.class) {</span>
+<span class="nc" id="L459">      return readString(old, in);</span>
+    }
+<span class="nc" id="L461">    return newInstanceFromString(stringClass, in.readString());</span>
+  }
+
+  /**
+   * Called to read strings. Subclasses may override to use a different string
+   * representation. By default, this calls {@link Decoder#readString(Utf8)}.
+   */
+  protected Object readString(Object old, Decoder in) throws IOException {
+<span class="nc bnc" id="L469" title="All 2 branches missed.">    return in.readString(old instanceof Utf8 ? (Utf8) old : null);</span>
+  }
+
+  /**
+   * Called to create a string from a default value. Subclasses may override to
+   * use a different string representation. By default, this calls
+   * {@link Utf8#Utf8(String)}.
+   */
+  protected Object createString(String value) {
+<span class="nc" id="L478">    return new Utf8(value);</span>
+  }
+
+  /**
+   * Determines the class to used to represent a string Schema. By default uses
+   * {@link GenericData#STRING_PROP} to determine whether {@link Utf8} or
+   * {@link String} is used. Subclasses may override for alternate
+   * representations.
+   */
+  protected Class findStringClass(Schema schema) {
+<span class="nc" id="L488">    String name = schema.getProp(GenericData.STRING_PROP);</span>
+<span class="nc bnc" id="L489" title="All 2 branches missed.">    if (name == null)</span>
+<span class="nc" id="L490">      return CharSequence.class;</span>
+
+<span class="nc bnc" id="L492" title="All 2 branches missed.">    switch (GenericData.StringType.valueOf(name)) {</span>
+    case String:
+<span class="nc" id="L494">      return String.class;</span>
+    default:
+<span class="nc" id="L496">      return CharSequence.class;</span>
+    }
+  }
+
+<span class="nc" id="L500">  private Map&lt;Schema, Class&gt; stringClassCache = new IdentityHashMap&lt;&gt;();</span>
+
+  private Class getStringClass(Schema s) {
+<span class="nc" id="L503">    Class c = stringClassCache.get(s);</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">    if (c == null) {</span>
+<span class="nc" id="L505">      c = findStringClass(s);</span>
+<span class="nc" id="L506">      stringClassCache.put(s, c);</span>
+    }
+<span class="nc" id="L508">    return c;</span>
+  }
+
+<span class="nc" id="L511">  private final Map&lt;Class, Constructor&gt; stringCtorCache = new HashMap&lt;&gt;();</span>
+
+  @SuppressWarnings(&quot;unchecked&quot;)
+  protected Object newInstanceFromString(Class c, String s) {
+    try {
+<span class="nc" id="L516">      Constructor ctor = stringCtorCache.get(c);</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">      if (ctor == null) {</span>
+<span class="nc" id="L518">        ctor = c.getDeclaredConstructor(String.class);</span>
+<span class="nc" id="L519">        ctor.setAccessible(true);</span>
+<span class="nc" id="L520">        stringCtorCache.put(c, ctor);</span>
+      }
+<span class="nc" id="L522">      return ctor.newInstance(s);</span>
+<span class="nc" id="L523">    } catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException | InstantiationException e) {</span>
+<span class="nc" id="L524">      throw new AvroRuntimeException(e);</span>
+    }
+  }
+
+  /**
+   * Called to read byte arrays. Subclasses may override to use a different byte
+   * array representation. By default, this calls
+   * {@link Decoder#readBytes(ByteBuffer)}.
+   */
+  protected Object readBytes(Object old, Schema s, Decoder in) throws IOException {
+<span class="nc" id="L534">    return readBytes(old, in);</span>
+  }
+
+  /**
+   * Called to read byte arrays. Subclasses may override to use a different byte
+   * array representation. By default, this calls
+   * {@link Decoder#readBytes(ByteBuffer)}.
+   */
+  protected Object readBytes(Object old, Decoder in) throws IOException {
+<span class="nc bnc" id="L543" title="All 2 branches missed.">    return in.readBytes(old instanceof ByteBuffer ? (ByteBuffer) old : null);</span>
+  }
+
+  /**
+   * Called to read integers. Subclasses may override to use a different integer
+   * representation. By default, this calls {@link Decoder#readInt()}.
+   */
+  protected Object readInt(Object old, Schema expected, Decoder in) throws IOException {
+<span class="nc" id="L551">    return in.readInt();</span>
+  }
+
+  /**
+   * Called to create byte arrays from default values. Subclasses may override to
+   * use a different byte array representation. By default, this calls
+   * {@link ByteBuffer#wrap(byte[])}.
+   */
+  protected Object createBytes(byte[] value) {
+<span class="nc" id="L560">    return ByteBuffer.wrap(value);</span>
+  }
+
+  /** Skip an instance of a schema. */
+  public static void skip(Schema schema, Decoder in) throws IOException {
+<span class="nc bnc" id="L565" title="All 15 branches missed.">    switch (schema.getType()) {</span>
+    case RECORD:
+<span class="nc bnc" id="L567" title="All 2 branches missed.">      for (Field field : schema.getFields())</span>
+<span class="nc" id="L568">        skip(field.schema(), in);</span>
+<span class="nc" id="L569">      break;</span>
+    case ENUM:
+<span class="nc" id="L571">      in.readInt();</span>
+<span class="nc" id="L572">      break;</span>
+    case ARRAY:
+<span class="nc" id="L574">      Schema elementType = schema.getElementType();</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">      for (long l = in.skipArray(); l &gt; 0; l = in.skipArray()) {</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">        for (long i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L577">          skip(elementType, in);</span>
+        }
+      }
+<span class="nc" id="L580">      break;</span>
+    case MAP:
+<span class="nc" id="L582">      Schema value = schema.getValueType();</span>
+<span class="nc bnc" id="L583" title="All 2 branches missed.">      for (long l = in.skipMap(); l &gt; 0; l = in.skipMap()) {</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">        for (long i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L585">          in.skipString();</span>
+<span class="nc" id="L586">          skip(value, in);</span>
+        }
+      }
+<span class="nc" id="L589">      break;</span>
+    case UNION:
+<span class="nc" id="L591">      skip(schema.getTypes().get(in.readIndex()), in);</span>
+<span class="nc" id="L592">      break;</span>
+    case FIXED:
+<span class="nc" id="L594">      in.skipFixed(schema.getFixedSize());</span>
+<span class="nc" id="L595">      break;</span>
+    case STRING:
+<span class="nc" id="L597">      in.skipString();</span>
+<span class="nc" id="L598">      break;</span>
+    case BYTES:
+<span class="nc" id="L600">      in.skipBytes();</span>
+<span class="nc" id="L601">      break;</span>
+    case INT:
+<span class="nc" id="L603">      in.readInt();</span>
+<span class="nc" id="L604">      break;</span>
+    case LONG:
+<span class="nc" id="L606">      in.readLong();</span>
+<span class="nc" id="L607">      break;</span>
+    case FLOAT:
+<span class="nc" id="L609">      in.readFloat();</span>
+<span class="nc" id="L610">      break;</span>
+    case DOUBLE:
+<span class="nc" id="L612">      in.readDouble();</span>
+<span class="nc" id="L613">      break;</span>
+    case BOOLEAN:
+<span class="nc" id="L615">      in.readBoolean();</span>
+<span class="nc" id="L616">      break;</span>
+    case NULL:
+<span class="nc" id="L618">      break;</span>
+    default:
+<span class="nc" id="L620">      throw new RuntimeException(&quot;Unknown type: &quot; + schema);</span>
+    }
+<span class="nc" id="L622">  }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

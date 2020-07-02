@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Encoder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">Encoder.java</span></div><h1>Encoder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io;
+
+import java.io.Flushable;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+
+import org.apache.avro.util.Utf8;
+
+/**
+ * Low-level support for serializing Avro values.
+ * &lt;p/&gt;
+ * This class has two types of methods. One type of methods support the writing
+ * of leaf values (for example, {@link #writeLong} and {@link #writeString}).
+ * These methods have analogs in {@link Decoder}.
+ * &lt;p/&gt;
+ * The other type of methods support the writing of maps and arrays. These
+ * methods are {@link #writeArrayStart}, {@link #startItem}, and
+ * {@link #writeArrayEnd} (and similar methods for maps). Some implementations
+ * of {@link Encoder} handle the buffering required to break large maps and
+ * arrays into blocks, which is necessary for applications that want to do
+ * streaming. (See {@link #writeArrayStart} for details on these methods.)
+ * &lt;p/&gt;
+ * {@link EncoderFactory} contains Encoder construction and configuration
+ * facilities.
+ * 
+ * @see EncoderFactory
+ * @see Decoder
+ */
+<span class="nc" id="L46">public abstract class Encoder implements Flushable {</span>
+
+  /**
+   * &quot;Writes&quot; a null value. (Doesn't actually write anything, but advances the
+   * state of the parser if this class is stateful.)
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a null is not
+   *                           expected
+   */
+  public abstract void writeNull() throws IOException;
+
+  /**
+   * Write a boolean value.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a boolean is not
+   *                           expected
+   */
+  public abstract void writeBoolean(boolean b) throws IOException;
+
+  /**
+   * Writes a 32-bit integer.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and an integer is not
+   *                           expected
+   */
+  public abstract void writeInt(int n) throws IOException;
+
+  /**
+   * Write a 64-bit integer.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a long is not
+   *                           expected
+   */
+  public abstract void writeLong(long n) throws IOException;
+
+  /**
+   * Write a float.
+   * 
+   * @throws IOException
+   * @throws AvroTypeException If this is a stateful writer and a float is not
+   *                           expected
+   */
+  public abstract void writeFloat(float f) throws IOException;
+
+  /**
+   * Write a double.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a double is not
+   *                           expected
+   */
+  public abstract void writeDouble(double d) throws IOException;
+
+  /**
+   * Write a Unicode character string.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a char-string is
+   *                           not expected
+   */
+  public abstract void writeString(Utf8 utf8) throws IOException;
+
+  /**
+   * Write a Unicode character string. The default implementation converts the
+   * String to a {@link org.apache.avro.util.Utf8}. Some Encoder implementations
+   * may want to do something different as a performance optimization.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a char-string is
+   *                           not expected
+   */
+  public void writeString(String str) throws IOException {
+<span class="nc" id="L115">    writeString(new Utf8(str));</span>
+<span class="nc" id="L116">  }</span>
+
+  /**
+   * Write a Unicode character string. If the CharSequence is an
+   * {@link org.apache.avro.util.Utf8} it writes this directly, otherwise the
+   * CharSequence is converted to a String via toString() and written.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a char-string is
+   *                           not expected
+   */
+  public void writeString(CharSequence charSequence) throws IOException {
+<span class="nc bnc" id="L127" title="All 2 branches missed.">    if (charSequence instanceof Utf8)</span>
+<span class="nc" id="L128">      writeString((Utf8) charSequence);</span>
+    else
+<span class="nc" id="L130">      writeString(charSequence.toString());</span>
+<span class="nc" id="L131">  }</span>
+
+  /**
+   * Write a byte string.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a byte-string is
+   *                           not expected
+   */
+  public abstract void writeBytes(ByteBuffer bytes) throws IOException;
+
+  /**
+   * Write a byte string.
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a byte-string is
+   *                           not expected
+   */
+  public abstract void writeBytes(byte[] bytes, int start, int len) throws IOException;
+
+  /**
+   * Writes a byte string. Equivalent to
+   * &lt;tt&gt;writeBytes(bytes, 0, bytes.length)&lt;/tt&gt;
+   * 
+   * @throws IOException
+   * @throws AvroTypeException If this is a stateful writer and a byte-string is
+   *                           not expected
+   */
+  public void writeBytes(byte[] bytes) throws IOException {
+<span class="nc" id="L158">    writeBytes(bytes, 0, bytes.length);</span>
+<span class="nc" id="L159">  }</span>
+
+  /**
+   * Writes a fixed size binary object.
+   * 
+   * @param bytes The contents to write
+   * @param start The position within &lt;tt&gt;bytes&lt;/tt&gt; where the contents start.
+   * @param len   The number of bytes to write.
+   * @throws AvroTypeException If this is a stateful writer and a byte-string is
+   *                           not expected
+   * @throws IOException
+   */
+  public abstract void writeFixed(byte[] bytes, int start, int len) throws IOException;
+
+  /**
+   * A shorthand for &lt;tt&gt;writeFixed(bytes, 0, bytes.length)&lt;/tt&gt;
+   * 
+   * @param bytes
+   */
+  public void writeFixed(byte[] bytes) throws IOException {
+<span class="nc" id="L179">    writeFixed(bytes, 0, bytes.length);</span>
+<span class="nc" id="L180">  }</span>
+
+  /** Writes a fixed from a ByteBuffer. */
+  public void writeFixed(ByteBuffer bytes) throws IOException {
+<span class="nc" id="L184">    int pos = bytes.position();</span>
+<span class="nc" id="L185">    int len = bytes.limit() - pos;</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    if (bytes.hasArray()) {</span>
+<span class="nc" id="L187">      writeFixed(bytes.array(), bytes.arrayOffset() + pos, len);</span>
+    } else {
+<span class="nc" id="L189">      byte[] b = new byte[len];</span>
+<span class="nc" id="L190">      bytes.duplicate().get(b, 0, len);</span>
+<span class="nc" id="L191">      writeFixed(b, 0, len);</span>
+    }
+<span class="nc" id="L193">  }</span>
+
+  /**
+   * Writes an enumeration.
+   * 
+   * @param e
+   * @throws AvroTypeException If this is a stateful writer and an enumeration is
+   *                           not expected or the &lt;tt&gt;e&lt;/tt&gt; is out of range.
+   * @throws IOException
+   */
+  public abstract void writeEnum(int e) throws IOException;
+
+  /**
+   * Call this method to start writing an array.
+   *
+   * When starting to serialize an array, call {@link #writeArrayStart}. Then,
+   * before writing any data for any item call {@link #setItemCount} followed by a
+   * sequence of {@link #startItem()} and the item itself. The number of
+   * {@link #startItem()} should match the number specified in
+   * {@link #setItemCount}. When actually writing the data of the item, you can
+   * call any {@link Encoder} method (e.g., {@link #writeLong}). When all items of
+   * the array have been written, call {@link #writeArrayEnd}.
+   *
+   * As an example, let's say you want to write an array of records, the record
+   * consisting of an Long field and a Boolean field. Your code would look
+   * something like this:
+   * 
+   * &lt;pre&gt;
+   * out.writeArrayStart();
+   * out.setItemCount(list.size());
+   * for (Record r : list) {
+   *   out.startItem();
+   *   out.writeLong(r.longField);
+   *   out.writeBoolean(r.boolField);
+   * }
+   * out.writeArrayEnd();
+   * &lt;/pre&gt;
+   * 
+   * @throws AvroTypeException If this is a stateful writer and an array is not
+   *                           expected
+   */
+  public abstract void writeArrayStart() throws IOException;
+
+  /**
+   * Call this method before writing a batch of items in an array or a map. Then
+   * for each item, call {@link #startItem()} followed by any of the other write
+   * methods of {@link Encoder}. The number of calls to {@link #startItem()} must
+   * be equal to the count specified in {@link #setItemCount}. Once a batch is
+   * completed you can start another batch with {@link #setItemCount}.
+   *
+   * @param itemCount The number of {@link #startItem()} calls to follow.
+   * @throws IOException
+   */
+  public abstract void setItemCount(long itemCount) throws IOException;
+
+  /**
+   * Start a new item of an array or map. See {@link #writeArrayStart} for usage
+   * information.
+   * 
+   * @throws AvroTypeException If called outside of an array or map context
+   */
+  public abstract void startItem() throws IOException;
+
+  /**
+   * Call this method to finish writing an array. See {@link #writeArrayStart} for
+   * usage information.
+   *
+   * @throws AvroTypeException If items written does not match count provided to
+   *                           {@link #writeArrayStart}
+   * @throws AvroTypeException If not currently inside an array
+   */
+  public abstract void writeArrayEnd() throws IOException;
+
+  /**
+   * Call this to start a new map. See {@link #writeArrayStart} for details on
+   * usage.
+   *
+   * As an example of usage, let's say you want to write a map of records, the
+   * record consisting of an Long field and a Boolean field. Your code would look
+   * something like this:
+   * 
+   * &lt;pre&gt;
+   * out.writeMapStart();
+   * out.setItemCount(list.size());
+   * for (Map.Entry&lt;String, Record&gt; entry : map.entrySet()) {
+   *   out.startItem();
+   *   out.writeString(entry.getKey());
+   *   out.writeLong(entry.getValue().longField);
+   *   out.writeBoolean(entry.getValue().boolField);
+   * }
+   * out.writeMapEnd();
+   * &lt;/pre&gt;
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a map is not
+   *                           expected
+   */
+  public abstract void writeMapStart() throws IOException;
+
+  /**
+   * Call this method to terminate the inner-most, currently-opened map. See
+   * {@link #writeArrayStart} for more details.
+   *
+   * @throws AvroTypeException If items written does not match count provided to
+   *                           {@link #writeMapStart}
+   * @throws AvroTypeException If not currently inside a map
+   */
+  public abstract void writeMapEnd() throws IOException;
+
+  /**
+   * Call this method to write the tag of a union.
+   *
+   * As an example of usage, let's say you want to write a union, whose second
+   * branch is a record consisting of an Long field and a Boolean field. Your code
+   * would look something like this:
+   * 
+   * &lt;pre&gt;
+   * out.writeIndex(1);
+   * out.writeLong(record.longField);
+   * out.writeBoolean(record.boolField);
+   * &lt;/pre&gt;
+   * 
+   * @throws AvroTypeException If this is a stateful writer and a map is not
+   *                           expected
+   */
+  public abstract void writeIndex(int unionIndex) throws IOException;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

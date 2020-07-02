@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>BinaryMessageDecoder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.message</a> &gt; <span class="el_source">BinaryMessageDecoder.java</span></div><h1>BinaryMessageDecoder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.avro.message;
+
+import org.apache.avro.Schema;
+import org.apache.avro.SchemaNormalization;
+import org.apache.avro.generic.GenericData;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * A {@link MessageDecoder} that reads a binary-encoded datum. This checks for
+ * the datum header and decodes the payload with the schema that corresponds to
+ * the 8-byte schema fingerprint.
+ * &lt;p&gt;
+ * Instances can decode message payloads for known {@link Schema schemas}, which
+ * are schemas added using {@link #addSchema(Schema)}, schemas resolved by the
+ * {@link SchemaStore} passed to the constructor, or the expected schema passed
+ * to the constructor. Messages encoded using an unknown schema will cause
+ * instances to throw a {@link MissingSchemaException}.
+ * &lt;p&gt;
+ * It is safe to continue using instances of this class after {@link #decode}
+ * throws {@link BadHeaderException} or {@link MissingSchemaException}.
+ * &lt;p&gt;
+ * This class is thread-safe.
+ */
+public class BinaryMessageDecoder&lt;D&gt; extends MessageDecoder.BaseDecoder&lt;D&gt; {
+
+<span class="nc" id="L50">  private static final ThreadLocal&lt;byte[]&gt; HEADER_BUFFER = ThreadLocal.withInitial(() -&gt; new byte[10]);</span>
+
+<span class="nc" id="L52">  private static final ThreadLocal&lt;ByteBuffer&gt; FP_BUFFER = ThreadLocal.withInitial(() -&gt; {</span>
+<span class="nc" id="L53">    byte[] header = HEADER_BUFFER.get();</span>
+<span class="nc" id="L54">    return ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);</span>
+  });
+
+  private final GenericData model;
+  private final Schema readSchema;
+  private final SchemaStore resolver;
+
+<span class="nc" id="L61">  private final Map&lt;Long, RawMessageDecoder&lt;D&gt;&gt; codecByFingerprint = new ConcurrentHashMap&lt;&gt;();</span>
+
+  /**
+   * Creates a new {@link BinaryMessageEncoder} that uses the given
+   * {@link GenericData data model} to construct datum instances described by the
+   * {@link Schema schema}.
+   * &lt;p&gt;
+   * The {@code readSchema} is as used the expected schema (read schema). Datum
+   * instances created by this class will be described by the expected schema.
+   * &lt;p&gt;
+   * If {@code readSchema} is {@code null}, the write schema of an incoming buffer
+   * is used as read schema for that datum instance.
+   * &lt;p&gt;
+   * The schema used to decode incoming buffers is determined by the schema
+   * fingerprint encoded in the message header. This class can decode messages
+   * that were encoded using the {@code readSchema} (if any) and other schemas
+   * that are added using {@link #addSchema(Schema)}.
+   *
+   * @param model      the {@link GenericData data model} for datum instances
+   * @param readSchema the {@link Schema} used to construct datum instances
+   */
+  public BinaryMessageDecoder(GenericData model, Schema readSchema) {
+<span class="nc" id="L83">    this(model, readSchema, null);</span>
+<span class="nc" id="L84">  }</span>
+
+  /**
+   * Creates a new {@link BinaryMessageEncoder} that uses the given
+   * {@link GenericData data model} to construct datum instances described by the
+   * {@link Schema schema}.
+   * &lt;p&gt;
+   * The {@code readSchema} is used as the expected schema (read schema). Datum
+   * instances created by this class will be described by the expected schema.
+   * &lt;p&gt;
+   * If {@code readSchema} is {@code null}, the write schema of an incoming buffer
+   * is used as read schema for that datum instance.
+   * &lt;p&gt;
+   * The schema used to decode incoming buffers is determined by the schema
+   * fingerprint encoded in the message header. This class can decode messages
+   * that were encoded using the {@code readSchema} (if any), other schemas that
+   * are added using {@link #addSchema(Schema)}, or schemas returned by the
+   * {@code resolver}.
+   *
+   * @param model      the {@link GenericData data model} for datum instances
+   * @param readSchema the {@link Schema} used to construct datum instances
+   * @param resolver   a {@link SchemaStore} used to find schemas by fingerprint
+   */
+<span class="nc" id="L107">  public BinaryMessageDecoder(GenericData model, Schema readSchema, SchemaStore resolver) {</span>
+<span class="nc" id="L108">    this.model = model;</span>
+<span class="nc" id="L109">    this.readSchema = readSchema;</span>
+<span class="nc" id="L110">    this.resolver = resolver;</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">    if (readSchema != null) {</span>
+<span class="nc" id="L112">      addSchema(readSchema);</span>
+    }
+<span class="nc" id="L114">  }</span>
+
+  /**
+   * Adds a {@link Schema} that can be used to decode buffers.
+   *
+   * @param writeSchema a {@link Schema} to use when decoding buffers
+   */
+  public void addSchema(Schema writeSchema) {
+<span class="nc" id="L122">    long fp = SchemaNormalization.parsingFingerprint64(writeSchema);</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">    final Schema actualReadSchema = this.readSchema != null ? this.readSchema : writeSchema;</span>
+<span class="nc" id="L124">    codecByFingerprint.put(fp, new RawMessageDecoder&lt;D&gt;(model, writeSchema, actualReadSchema));</span>
+<span class="nc" id="L125">  }</span>
+
+  private RawMessageDecoder&lt;D&gt; getDecoder(long fp) {
+<span class="nc" id="L128">    RawMessageDecoder&lt;D&gt; decoder = codecByFingerprint.get(fp);</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">    if (decoder != null) {</span>
+<span class="nc" id="L130">      return decoder;</span>
+    }
+
+<span class="nc bnc" id="L133" title="All 2 branches missed.">    if (resolver != null) {</span>
+<span class="nc" id="L134">      Schema writeSchema = resolver.findByFingerprint(fp);</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">      if (writeSchema != null) {</span>
+<span class="nc" id="L136">        addSchema(writeSchema);</span>
+<span class="nc" id="L137">        return codecByFingerprint.get(fp);</span>
+      }
+    }
+
+<span class="nc" id="L141">    throw new MissingSchemaException(&quot;Cannot resolve schema for fingerprint: &quot; + fp);</span>
+  }
+
+  @Override
+  public D decode(InputStream stream, D reuse) throws IOException {
+<span class="nc" id="L146">    byte[] header = HEADER_BUFFER.get();</span>
+    try {
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      if (!readFully(stream, header)) {</span>
+<span class="nc" id="L149">        throw new BadHeaderException(&quot;Not enough header bytes&quot;);</span>
+      }
+<span class="nc" id="L151">    } catch (IOException e) {</span>
+<span class="nc" id="L152">      throw new IOException(&quot;Failed to read header and fingerprint bytes&quot;, e);</span>
+<span class="nc" id="L153">    }</span>
+
+<span class="nc bnc" id="L155" title="All 4 branches missed.">    if (BinaryMessageEncoder.V1_HEADER[0] != header[0] || BinaryMessageEncoder.V1_HEADER[1] != header[1]) {</span>
+<span class="nc" id="L156">      throw new BadHeaderException(String.format(&quot;Unrecognized header bytes: 0x%02X 0x%02X&quot;, header[0], header[1]));</span>
+    }
+
+<span class="nc" id="L159">    RawMessageDecoder&lt;D&gt; decoder = getDecoder(FP_BUFFER.get().getLong(2));</span>
+
+<span class="nc" id="L161">    return decoder.decode(stream, reuse);</span>
+  }
+
+  /**
+   * Reads a buffer from a stream, making multiple read calls if necessary.
+   *
+   * @param stream an InputStream to read from
+   * @param bytes  a buffer
+   * @return true if the buffer is complete, false otherwise (stream ended)
+   * @throws IOException
+   */
+  private boolean readFully(InputStream stream, byte[] bytes) throws IOException {
+<span class="nc" id="L173">    int pos = 0;</span>
+    int bytesRead;
+<span class="nc bnc" id="L175" title="All 4 branches missed.">    while ((bytes.length - pos) &gt; 0 &amp;&amp; (bytesRead = stream.read(bytes, pos, bytes.length - pos)) &gt; 0) {</span>
+<span class="nc" id="L176">      pos += bytesRead;</span>
+    }
+<span class="nc bnc" id="L178" title="All 2 branches missed.">    return (pos == bytes.length);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ReflectDatumWriter.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.reflect</a> &gt; <span class="el_source">ReflectDatumWriter.java</span></div><h1>ReflectDatumWriter.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.reflect;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.avro.AvroRuntimeException;
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.io.Encoder;
+import org.apache.avro.specific.SpecificDatumWriter;
+
+/**
+ * {@link org.apache.avro.io.DatumWriter DatumWriter} for existing classes via
+ * Java reflection.
+ */
+public class ReflectDatumWriter&lt;T&gt; extends SpecificDatumWriter&lt;T&gt; {
+  public ReflectDatumWriter() {
+<span class="nc" id="L39">    this(ReflectData.get());</span>
+<span class="nc" id="L40">  }</span>
+
+  public ReflectDatumWriter(Class&lt;T&gt; c) {
+<span class="nc" id="L43">    this(c, ReflectData.get());</span>
+<span class="nc" id="L44">  }</span>
+
+  public ReflectDatumWriter(Class&lt;T&gt; c, ReflectData data) {
+<span class="nc" id="L47">    this(data.getSchema(c), data);</span>
+<span class="nc" id="L48">  }</span>
+
+  public ReflectDatumWriter(Schema root) {
+<span class="nc" id="L51">    this(root, ReflectData.get());</span>
+<span class="nc" id="L52">  }</span>
+
+  public ReflectDatumWriter(Schema root, ReflectData reflectData) {
+<span class="nc" id="L55">    super(root, reflectData);</span>
+<span class="nc" id="L56">  }</span>
+
+  protected ReflectDatumWriter(ReflectData reflectData) {
+<span class="nc" id="L59">    super(reflectData);</span>
+<span class="nc" id="L60">  }</span>
+
+  /**
+   * Called to write a array. May be overridden for alternate array
+   * representations.
+   */
+  @Override
+  protected void writeArray(Schema schema, Object datum, Encoder out) throws IOException {
+<span class="nc bnc" id="L68" title="All 2 branches missed.">    if (datum instanceof Collection) {</span>
+<span class="nc" id="L69">      super.writeArray(schema, datum, out);</span>
+<span class="nc" id="L70">      return;</span>
+    }
+<span class="nc" id="L72">    Class&lt;?&gt; elementClass = datum.getClass().getComponentType();</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    if (null == elementClass) {</span>
+      // not a Collection or an Array
+<span class="nc" id="L75">      throw new AvroRuntimeException(&quot;Array data must be a Collection or Array&quot;);</span>
+    }
+<span class="nc" id="L77">    Schema element = schema.getElementType();</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">    if (elementClass.isPrimitive()) {</span>
+<span class="nc" id="L79">      Schema.Type type = element.getType();</span>
+<span class="nc" id="L80">      out.writeArrayStart();</span>
+<span class="nc bnc" id="L81" title="All 6 branches missed.">      switch (type) {</span>
+      case BOOLEAN:
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        if (elementClass.isPrimitive())</span>
+<span class="nc" id="L84">          ArrayAccessor.writeArray((boolean[]) datum, out);</span>
+        break;
+      case DOUBLE:
+<span class="nc" id="L87">        ArrayAccessor.writeArray((double[]) datum, out);</span>
+<span class="nc" id="L88">        break;</span>
+      case FLOAT:
+<span class="nc" id="L90">        ArrayAccessor.writeArray((float[]) datum, out);</span>
+<span class="nc" id="L91">        break;</span>
+      case INT:
+<span class="nc bnc" id="L93" title="All 2 branches missed.">        if (elementClass.equals(int.class)) {</span>
+<span class="nc" id="L94">          ArrayAccessor.writeArray((int[]) datum, out);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        } else if (elementClass.equals(char.class)) {</span>
+<span class="nc" id="L96">          ArrayAccessor.writeArray((char[]) datum, out);</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        } else if (elementClass.equals(short.class)) {</span>
+<span class="nc" id="L98">          ArrayAccessor.writeArray((short[]) datum, out);</span>
+        } else {
+<span class="nc" id="L100">          arrayError(elementClass, type);</span>
+        }
+<span class="nc" id="L102">        break;</span>
+      case LONG:
+<span class="nc" id="L104">        ArrayAccessor.writeArray((long[]) datum, out);</span>
+<span class="nc" id="L105">        break;</span>
+      default:
+<span class="nc" id="L107">        arrayError(elementClass, type);</span>
+      }
+<span class="nc" id="L109">      out.writeArrayEnd();</span>
+<span class="nc" id="L110">    } else {</span>
+<span class="nc" id="L111">      out.writeArrayStart();</span>
+<span class="nc" id="L112">      writeObjectArray(element, (Object[]) datum, out);</span>
+<span class="nc" id="L113">      out.writeArrayEnd();</span>
+    }
+<span class="nc" id="L115">  }</span>
+
+  private void writeObjectArray(Schema element, Object[] data, Encoder out) throws IOException {
+<span class="nc" id="L118">    int size = data.length;</span>
+<span class="nc" id="L119">    out.setItemCount(size);</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">    for (Object datum : data) {</span>
+<span class="nc" id="L121">      this.write(element, datum, out);</span>
+    }
+<span class="nc" id="L123">  }</span>
+
+  private void arrayError(Class&lt;?&gt; cl, Schema.Type type) {
+<span class="nc" id="L126">    throw new AvroRuntimeException(&quot;Error writing array with inner type &quot; + cl + &quot; and avro type: &quot; + type);</span>
+  }
+
+  @Override
+  protected void writeBytes(Object datum, Encoder out) throws IOException {
+<span class="nc bnc" id="L131" title="All 2 branches missed.">    if (datum instanceof byte[])</span>
+<span class="nc" id="L132">      out.writeBytes((byte[]) datum);</span>
+    else
+<span class="nc" id="L134">      super.writeBytes(datum, out);</span>
+<span class="nc" id="L135">  }</span>
+
+  @Override
+  protected void write(Schema schema, Object datum, Encoder out) throws IOException {
+<span class="nc bnc" id="L139" title="All 2 branches missed.">    if (datum instanceof Byte)</span>
+<span class="nc" id="L140">      datum = ((Byte) datum).intValue();</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">    else if (datum instanceof Short)</span>
+<span class="nc" id="L142">      datum = ((Short) datum).intValue();</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">    else if (datum instanceof Character)</span>
+<span class="nc" id="L144">      datum = (int) (char) (Character) datum;</span>
+<span class="nc bnc" id="L145" title="All 4 branches missed.">    else if (datum instanceof Map &amp;&amp; ReflectData.isNonStringMapSchema(schema)) {</span>
+      // Maps with non-string keys are written as arrays.
+      // Schema for such maps is already changed. Here we
+      // just switch the map to a similar form too.
+<span class="nc" id="L149">      Set entries = ((Map) datum).entrySet();</span>
+<span class="nc" id="L150">      List&lt;Map.Entry&gt; entryList = new ArrayList&lt;&gt;(entries.size());</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">      for (Object obj : ((Map) datum).entrySet()) {</span>
+<span class="nc" id="L152">        Map.Entry e = (Map.Entry) obj;</span>
+<span class="nc" id="L153">        entryList.add(new MapEntry(e.getKey(), e.getValue()));</span>
+<span class="nc" id="L154">      }</span>
+<span class="nc" id="L155">      datum = entryList;</span>
+    }
+    try {
+<span class="nc" id="L158">      super.write(schema, datum, out);</span>
+<span class="nc" id="L159">    } catch (NullPointerException e) { // improve error message</span>
+<span class="nc" id="L160">      NullPointerException result = new NullPointerException(&quot;in &quot; + schema.getFullName() + &quot; &quot; + e.getMessage());</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">      result.initCause(e.getCause() == null ? e : e.getCause());</span>
+<span class="nc" id="L162">      throw result;</span>
+<span class="nc" id="L163">    }</span>
+<span class="nc" id="L164">  }</span>
+
+  @Override
+  protected void writeField(Object record, Field f, Encoder out, Object state) throws IOException {
+<span class="nc bnc" id="L168" title="All 2 branches missed.">    if (state != null) {</span>
+<span class="nc" id="L169">      FieldAccessor accessor = ((FieldAccessor[]) state)[f.pos()];</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">      if (accessor != null) {</span>
+<span class="nc bnc" id="L171" title="All 6 branches missed.">        if (accessor.supportsIO() &amp;&amp; (!Schema.Type.UNION.equals(f.schema().getType()) || accessor.isCustomEncoded())) {</span>
+<span class="nc" id="L172">          accessor.write(record, out);</span>
+<span class="nc" id="L173">          return;</span>
+        }
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        if (accessor.isStringable()) {</span>
+          try {
+<span class="nc" id="L177">            Object object = accessor.get(record);</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">            write(f.schema(), (object == null) ? null : object.toString(), out);</span>
+<span class="nc" id="L179">          } catch (IllegalAccessException e) {</span>
+<span class="nc" id="L180">            throw new AvroRuntimeException(&quot;Failed to write Stringable&quot;, e);</span>
+<span class="nc" id="L181">          }</span>
+<span class="nc" id="L182">          return;</span>
+        }
+      }
+    }
+<span class="nc" id="L186">    super.writeField(record, f, out, state);</span>
+<span class="nc" id="L187">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

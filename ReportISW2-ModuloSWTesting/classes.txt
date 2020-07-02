@@ -1,0 +1,10 @@
+AVRO
+
+org.apache.avro.generic.GenericData 
+org.apache.avro.SchemaCompatibility 
+	
+
+BOOKKEEPER
+
+org.apache.bookkeeper.bookie.BufferedChannel	
+org.apache.bookkeeper.proto.checksum.DigestManager

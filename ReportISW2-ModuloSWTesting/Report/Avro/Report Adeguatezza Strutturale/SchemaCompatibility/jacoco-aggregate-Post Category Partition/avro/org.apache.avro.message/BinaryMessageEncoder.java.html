@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>BinaryMessageEncoder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.message</a> &gt; <span class="el_source">BinaryMessageEncoder.java</span></div><h1>BinaryMessageEncoder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+package org.apache.avro.message;
+
+import org.apache.avro.AvroRuntimeException;
+import org.apache.avro.Schema;
+import org.apache.avro.SchemaNormalization;
+import org.apache.avro.generic.GenericData;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.security.NoSuchAlgorithmException;
+
+/**
+ * A {@link MessageEncoder} that adds a header and 8-byte schema fingerprint to
+ * each datum encoded as binary.
+ * &lt;p&gt;
+ * This class is thread-safe.
+ */
+public class BinaryMessageEncoder&lt;D&gt; implements MessageEncoder&lt;D&gt; {
+
+<span class="nc" id="L39">  static final byte[] V1_HEADER = new byte[] { (byte) 0xC3, (byte) 0x01 };</span>
+
+  private final RawMessageEncoder&lt;D&gt; writeCodec;
+
+  /**
+   * Creates a new {@link BinaryMessageEncoder} that uses the given
+   * {@link GenericData data model} to deconstruct datum instances described by
+   * the {@link Schema schema}.
+   * &lt;p&gt;
+   * Buffers returned by {@link #encode(D)} are copied and will not be modified by
+   * future calls to {@code encode}.
+   *
+   * @param model  the {@link GenericData data model} for datum instances
+   * @param schema the {@link Schema} for datum instances
+   */
+  public BinaryMessageEncoder(GenericData model, Schema schema) {
+<span class="nc" id="L55">    this(model, schema, true);</span>
+<span class="nc" id="L56">  }</span>
+
+  /**
+   * Creates a new {@link BinaryMessageEncoder} that uses the given
+   * {@link GenericData data model} to deconstruct datum instances described by
+   * the {@link Schema schema}.
+   * &lt;p&gt;
+   * If {@code shouldCopy} is true, then buffers returned by {@link #encode(D)}
+   * are copied and will not be modified by future calls to {@code encode}.
+   * &lt;p&gt;
+   * If {@code shouldCopy} is false, then buffers returned by {@code encode} wrap
+   * a thread-local buffer that can be reused by future calls to {@code encode},
+   * but may not be. Callers should only set {@code shouldCopy} to false if the
+   * buffer will be copied before the current thread's next call to
+   * {@code encode}.
+   *
+   * @param model      the {@link GenericData data model} for datum instances
+   * @param schema     the {@link Schema} for datum instances
+   * @param shouldCopy whether to copy buffers before returning encoded results
+   */
+<span class="nc" id="L76">  public BinaryMessageEncoder(GenericData model, Schema schema, boolean shouldCopy) {</span>
+<span class="nc" id="L77">    this.writeCodec = new V1MessageEncoder&lt;&gt;(model, schema, shouldCopy);</span>
+<span class="nc" id="L78">  }</span>
+
+  @Override
+  public ByteBuffer encode(D datum) throws IOException {
+<span class="nc" id="L82">    return writeCodec.encode(datum);</span>
+  }
+
+  @Override
+  public void encode(D datum, OutputStream stream) throws IOException {
+<span class="nc" id="L87">    writeCodec.encode(datum, stream);</span>
+<span class="nc" id="L88">  }</span>
+
+  /**
+   * This is a RawDatumEncoder that adds the V1 header to the outgoing buffer.
+   * BinaryDatumEncoder wraps this class to avoid confusion over what it does. It
+   * should not have an &quot;is a&quot; relationship with RawDatumEncoder because it adds
+   * the extra bytes.
+   */
+  private static class V1MessageEncoder&lt;D&gt; extends RawMessageEncoder&lt;D&gt; {
+    private final byte[] headerBytes;
+
+    V1MessageEncoder(GenericData model, Schema schema, boolean shouldCopy) {
+<span class="nc" id="L100">      super(model, schema, shouldCopy);</span>
+<span class="nc" id="L101">      this.headerBytes = getWriteHeader(schema);</span>
+<span class="nc" id="L102">    }</span>
+
+    @Override
+    public void encode(D datum, OutputStream stream) throws IOException {
+<span class="nc" id="L106">      stream.write(headerBytes);</span>
+<span class="nc" id="L107">      super.encode(datum, stream);</span>
+<span class="nc" id="L108">    }</span>
+
+    private static byte[] getWriteHeader(Schema schema) {
+      try {
+<span class="nc" id="L112">        byte[] fp = SchemaNormalization.parsingFingerprint(&quot;CRC-64-AVRO&quot;, schema);</span>
+
+<span class="nc" id="L114">        byte[] ret = new byte[V1_HEADER.length + fp.length];</span>
+<span class="nc" id="L115">        System.arraycopy(V1_HEADER, 0, ret, 0, V1_HEADER.length);</span>
+<span class="nc" id="L116">        System.arraycopy(fp, 0, ret, V1_HEADER.length, fp.length);</span>
+<span class="nc" id="L117">        return ret;</span>
+<span class="nc" id="L118">      } catch (NoSuchAlgorithmException e) {</span>
+<span class="nc" id="L119">        throw new AvroRuntimeException(e);</span>
+      }
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

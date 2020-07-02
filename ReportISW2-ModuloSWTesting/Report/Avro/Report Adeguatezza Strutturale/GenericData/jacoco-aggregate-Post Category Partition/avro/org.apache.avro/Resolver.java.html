@@ -1,0 +1,809 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Resolver.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro</a> &gt; <span class="el_source">Resolver.java</span></div><h1>Resolver.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.Schema.SeenPair;
+import org.apache.avro.Resolver.ErrorAction.ErrorType;
+
+/**
+ * Encapsulate schema-resolution logic in an easy-to-consume representation. See
+ * {@link #resolve} and also the separate document entitled
+ * &lt;tt&gt;refactoring-resolution&lt;/tt&gt; for more information. It might also be
+ * helpful to study {@link org.apache.avro.io.parsing.ResolvingGrammarGenerator}
+ * as an example of how to use this class.
+ */
+<span class="nc" id="L36">public class Resolver {</span>
+  /**
+   * Returns a {@link Resolver.Action} tree for resolving the writer schema
+   * &lt;tt&gt;writer&lt;/tt&gt; and the reader schema &lt;tt&gt;reader&lt;/tt&gt;.
+   *
+   * This method walks the reader's and writer's schemas together, generating an
+   * appropriate subclass of {@link Action} to encapsulate the information needed
+   * to resolve the corresponding parts of each schema tree. For convenience,
+   * every {@link Action} object has a pointer to the corresponding parts of the
+   * reader's and writer's trees being resolved by the action. Each subclass of
+   * {@link Action} has additional information needed for different types of
+   * schema, e.g., the {@link EnumAdjust} subclass has information about
+   * re-ordering and deletion of enumeration symbols, while {@link RecordAdjust}
+   * has information about re-ordering and deletion of record fields.
+   *
+   * Note that aliases are applied to the writer's schema before resolution
+   * actually takes place. This means that the &lt;tt&gt;writer&lt;/tt&gt; field of the
+   * resulting {@link Action} objects will not be the same schema as provided to
+   * this method. However, the &lt;tt&gt;reader&lt;/tt&gt; field will be.
+   *
+   * @param writer The schema used by the writer
+   * @param reader The schema used by the reader
+   * @param data   Used for &lt;tt&gt;getDefaultValue&lt;/tt&gt; and getting conversions
+   * @return Nested actions for resolving the two
+   */
+  public static Action resolve(Schema writer, Schema reader, GenericData data) {
+<span class="nc" id="L62">    return resolve(Schema.applyAliases(writer, reader), reader, data, new HashMap&lt;&gt;());</span>
+  }
+
+  /**
+   * Uses &lt;tt&gt;GenericData.get()&lt;/tt&gt; for the &lt;tt&gt;data&lt;/tt&gt; param.
+   */
+  public static Action resolve(Schema writer, Schema reader) {
+<span class="nc" id="L69">    return resolve(writer, reader, GenericData.get());</span>
+  }
+
+  private static Action resolve(Schema w, Schema r, GenericData d, Map&lt;SeenPair, Action&gt; seen) {
+<span class="nc" id="L73">    final Schema.Type wType = w.getType();</span>
+<span class="nc" id="L74">    final Schema.Type rType = r.getType();</span>
+
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    if (wType == Schema.Type.UNION) {</span>
+<span class="nc" id="L77">      return WriterUnion.resolve(w, r, d, seen);</span>
+    }
+
+<span class="nc bnc" id="L80" title="All 2 branches missed.">    if (wType == rType) {</span>
+<span class="nc bnc" id="L81" title="All 7 branches missed.">      switch (wType) {</span>
+      case NULL:
+      case BOOLEAN:
+      case INT:
+      case LONG:
+      case FLOAT:
+      case DOUBLE:
+      case STRING:
+      case BYTES:
+<span class="nc" id="L90">        return new DoNothing(w, r, d);</span>
+
+      case FIXED:
+<span class="nc bnc" id="L93" title="All 4 branches missed.">        if (w.getFullName() != null &amp;&amp; !w.getFullName().equals(r.getFullName())) {</span>
+<span class="nc" id="L94">          return new ErrorAction(w, r, d, ErrorType.NAMES_DONT_MATCH);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        } else if (w.getFixedSize() != r.getFixedSize()) {</span>
+<span class="nc" id="L96">          return new ErrorAction(w, r, d, ErrorType.SIZES_DONT_MATCH);</span>
+        } else {
+<span class="nc" id="L98">          return new DoNothing(w, r, d);</span>
+        }
+
+      case ARRAY:
+<span class="nc" id="L102">        Action et = resolve(w.getElementType(), r.getElementType(), d, seen);</span>
+<span class="nc" id="L103">        return new Container(w, r, d, et);</span>
+
+      case MAP:
+<span class="nc" id="L106">        Action vt = resolve(w.getValueType(), r.getValueType(), d, seen);</span>
+<span class="nc" id="L107">        return new Container(w, r, d, vt);</span>
+
+      case ENUM:
+<span class="nc" id="L110">        return EnumAdjust.resolve(w, r, d);</span>
+
+      case RECORD:
+<span class="nc" id="L113">        return RecordAdjust.resolve(w, r, d, seen);</span>
+
+      default:
+<span class="nc" id="L116">        throw new IllegalArgumentException(&quot;Unknown type for schema: &quot; + wType);</span>
+      }
+<span class="nc bnc" id="L118" title="All 2 branches missed.">    } else if (rType == Schema.Type.UNION) {</span>
+<span class="nc" id="L119">      return ReaderUnion.resolve(w, r, d, seen);</span>
+    } else {
+<span class="nc" id="L121">      return Promote.resolve(w, r, d);</span>
+    }
+  }
+
+  /**
+   * An abstract class for an action to be taken to resolve a writer's schema
+   * (found in public instance variable &lt;tt&gt;writer&lt;/tt&gt;) against a reader's schema
+   * (in &lt;tt&gt;reader&lt;/tt&gt;). Ordinarily, neither field can be &lt;tt&gt;null&lt;/tt&gt;, except
+   * that the &lt;tt&gt;reader&lt;/tt&gt; field can be &lt;tt&gt;null&lt;/tt&gt; in a {@link Skip}, which
+   * is used to skip a field in a writer's record that doesn't exist in the
+   * reader's (and thus there is no reader schema to resolve to).
+   */
+  public static abstract class Action {
+    /** Helps us traverse faster. */
+<span class="nc" id="L135">    public enum Type {</span>
+<span class="nc" id="L136">      DO_NOTHING, ERROR, PROMOTE, CONTAINER, ENUM, SKIP, RECORD, WRITER_UNION, READER_UNION</span>
+    }
+
+    public final Schema writer, reader;
+    public final Type type;
+
+    /**
+     * If the reader has a logical type, it's stored here for fast access, otherwise
+     * this will be null.
+     */
+    public final LogicalType logicalType;
+
+    /**
+     * If the reader has a conversion that needs to be applied, it's stored here for
+     * fast access, otherwise this will be null.
+     */
+    public final Conversion&lt;?&gt; conversion;
+
+<span class="nc" id="L154">    protected Action(Schema w, Schema r, GenericData data, Type t) {</span>
+<span class="nc" id="L155">      this.writer = w;</span>
+<span class="nc" id="L156">      this.reader = r;</span>
+<span class="nc" id="L157">      this.type = t;</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">      if (r == null) {</span>
+<span class="nc" id="L159">        this.logicalType = null;</span>
+<span class="nc" id="L160">        this.conversion = null;</span>
+      } else {
+<span class="nc" id="L162">        this.logicalType = r.getLogicalType();</span>
+<span class="nc" id="L163">        this.conversion = data.getConversionFor(logicalType);</span>
+      }
+<span class="nc" id="L165">    }</span>
+  }
+
+  /**
+   * In this case, there's nothing to be done for resolution: the two schemas are
+   * effectively the same. This action will be generated &lt;em&gt;only&lt;/em&gt; for
+   * primitive types and fixed types, and not for any other kind of schema.
+   */
+  public static class DoNothing extends Action {
+    public DoNothing(Schema w, Schema r, GenericData d) {
+<span class="nc" id="L175">      super(w, r, d, Action.Type.DO_NOTHING);</span>
+<span class="nc" id="L176">    }</span>
+  }
+
+  /**
+   * In this case there is an error. We put error Actions into trees because Avro
+   * reports these errors in a lazy fashion: if a particular input doesn't
+   * &quot;tickle&quot; the error (typically because it's in a branch of a union that isn't
+   * found in the data being read), then it's safe to ignore it.
+   */
+  public static class ErrorAction extends Action {
+<span class="nc" id="L186">    public enum ErrorType {</span>
+      /**
+       * Use when Schema types don't match and can't be converted. For example,
+       * resolving &quot;int&quot; and &quot;enum&quot;.
+       */
+<span class="nc" id="L191">      INCOMPATIBLE_SCHEMA_TYPES,</span>
+
+      /**
+       * Use when Schema types match but, in the case of record, enum, or fixed, the
+       * names don't match.
+       */
+<span class="nc" id="L197">      NAMES_DONT_MATCH,</span>
+
+      /**
+       * Use when two fixed types match and their names match by their sizes don't.
+       */
+<span class="nc" id="L202">      SIZES_DONT_MATCH,</span>
+
+      /**
+       * Use when matching two records and the reader has a field with no default
+       * value and that field is missing in the writer..
+       */
+<span class="nc" id="L208">      MISSING_REQUIRED_FIELD,</span>
+
+      /**
+       * Use when matching a reader's union against a non-union and can't find a
+       * branch that matches.
+       */
+<span class="nc" id="L214">      NO_MATCHING_BRANCH</span>
+    }
+
+    public final ErrorType error;
+
+    public ErrorAction(Schema w, Schema r, GenericData d, ErrorType e) {
+<span class="nc" id="L220">      super(w, r, d, Action.Type.ERROR);</span>
+<span class="nc" id="L221">      this.error = e;</span>
+<span class="nc" id="L222">    }</span>
+
+    @Override
+    public String toString() {
+<span class="nc bnc" id="L226" title="All 3 branches missed.">      switch (this.error) {</span>
+      case INCOMPATIBLE_SCHEMA_TYPES:
+      case NAMES_DONT_MATCH:
+      case SIZES_DONT_MATCH:
+      case NO_MATCHING_BRANCH:
+<span class="nc" id="L231">        return &quot;Found &quot; + writer.getFullName() + &quot;, expecting &quot; + reader.getFullName();</span>
+
+      case MISSING_REQUIRED_FIELD: {
+<span class="nc" id="L234">        final List&lt;Field&gt; rfields = reader.getFields();</span>
+<span class="nc" id="L235">        String fname = &quot;&lt;oops&gt;&quot;;</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        for (Field rf : rfields) {</span>
+<span class="nc bnc" id="L237" title="All 4 branches missed.">          if (writer.getField(rf.name()) == null &amp;&amp; rf.defaultValue() == null) {</span>
+<span class="nc" id="L238">            fname = rf.name();</span>
+          }
+<span class="nc" id="L240">        }</span>
+<span class="nc" id="L241">        return (&quot;Found &quot; + writer.getFullName() + &quot;, expecting &quot; + reader.getFullName() + &quot;, missing required field &quot;</span>
+            + fname);
+      }
+      default:
+<span class="nc" id="L245">        throw new IllegalArgumentException(&quot;Unknown error.&quot;);</span>
+      }
+    }
+  }
+
+  /**
+   * In this case, the writer's type needs to be promoted to the reader's. These
+   * are constructed by {@link Promote#resolve}, which will only construct one
+   * when the writer's and reader's schemas are different (ie, no &quot;self
+   * promotion&quot;), and whent the promotion is one allowed by the Avro spec.
+   */
+  public static class Promote extends Action {
+    private Promote(Schema w, Schema r, GenericData d) {
+<span class="nc" id="L258">      super(w, r, d, Action.Type.PROMOTE);</span>
+<span class="nc" id="L259">    }</span>
+
+    /**
+     * Return a promotion.
+     *
+     * @param w Writer's schema
+     * @param r Rearder's schema
+     * @return a {@link Promote} schema if the two schemas are compatible, or
+     *         {@link ErrorType#INCOMPATIBLE_SCHEMA_TYPES} if they are not.
+     * @throws IllegalArgumentException if &lt;em&gt;getType()&lt;/em&gt; of the two schemas are
+     *                                  not different.
+     */
+    public static Action resolve(Schema w, Schema r, GenericData d) {
+<span class="nc bnc" id="L272" title="All 2 branches missed.">      if (isValid(w, r)) {</span>
+<span class="nc" id="L273">        return new Promote(w, r, d);</span>
+      } else {
+<span class="nc" id="L275">        return new ErrorAction(w, r, d, ErrorType.INCOMPATIBLE_SCHEMA_TYPES);</span>
+      }
+    }
+
+    /**
+     * Returns true iff &lt;tt&gt;w&lt;/tt&gt; and &lt;tt&gt;r&lt;/tt&gt; are both primitive types and
+     * either they are the same type or &lt;tt&gt;w&lt;/tt&gt; is promotable to &lt;tt&gt;r&lt;/tt&gt;.
+     * Should
+     */
+    public static boolean isValid(Schema w, Schema r) {
+<span class="nc bnc" id="L285" title="All 2 branches missed.">      if (w.getType() == r.getType())</span>
+<span class="nc" id="L286">        throw new IllegalArgumentException(&quot;Only use when reader and writer are different.&quot;);</span>
+<span class="nc" id="L287">      Schema.Type wt = w.getType();</span>
+<span class="nc bnc" id="L288" title="All 6 branches missed.">      switch (r.getType()) {</span>
+      case INT:
+<span class="nc bnc" id="L290" title="All 2 branches missed.">        switch (wt) {</span>
+        case INT:
+<span class="nc" id="L292">          return true;</span>
+        }
+<span class="nc" id="L294">        break;</span>
+      case LONG:
+<span class="nc bnc" id="L296" title="All 2 branches missed.">        switch (wt) {</span>
+        case INT:
+        case LONG:
+<span class="nc" id="L299">          return true;</span>
+        }
+<span class="nc" id="L301">        break;</span>
+      case FLOAT:
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        switch (wt) {</span>
+        case INT:
+        case LONG:
+        case FLOAT:
+<span class="nc" id="L307">          return true;</span>
+        }
+<span class="nc" id="L309">        break;</span>
+      case DOUBLE:
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        switch (wt) {</span>
+        case INT:
+        case LONG:
+        case FLOAT:
+        case DOUBLE:
+<span class="nc" id="L316">          return true;</span>
+        }
+<span class="nc" id="L318">        break;</span>
+      case BYTES:
+      case STRING:
+<span class="nc bnc" id="L321" title="All 2 branches missed.">        switch (wt) {</span>
+        case STRING:
+        case BYTES:
+<span class="nc" id="L324">          return true;</span>
+        }
+        break;
+      }
+<span class="nc" id="L328">      return false;</span>
+    }
+  }
+
+  /**
+   * Used for array and map schemas: the public instance variable
+   * &lt;tt&gt;elementAction&lt;/tt&gt; contains the resolving action needed for the element
+   * type of an array or value top of a map.
+   */
+  public static class Container extends Action {
+    public final Action elementAction;
+
+    public Container(Schema w, Schema r, GenericData d, Action e) {
+<span class="nc" id="L341">      super(w, r, d, Action.Type.CONTAINER);</span>
+<span class="nc" id="L342">      this.elementAction = e;</span>
+<span class="nc" id="L343">    }</span>
+  }
+
+  /**
+   * Contains information needed to resolve enumerations. When resolving enums,
+   * adjustments need to be made in two scenarios: the index for an enum symbol
+   * might be different in the reader or writer, or the reader might not have a
+   * symbol that was written out for the writer (which is an error, but one we can
+   * only detect when decoding data).
+   *
+   * These adjustments are reflected in the instance variable
+   * &lt;tt&gt;adjustments&lt;/tt&gt;. For the symbol with index &lt;tt&gt;i&lt;/tt&gt; in the writer's
+   * enum definition, &lt;tt&gt;adjustments[i]&lt;/tt&gt; -- and integer -- contains the
+   * adjustment for that symbol. If the integer is positive, then reader also has
+   * the symbol and the integer is its index in the reader's schema. If
+   * &lt;tt&gt;adjustment[i]&lt;/tt&gt; is negative, then the reader does &lt;em&gt;not&lt;/em&gt; have
+   * the corresponding symbol (which is the error case).
+   *
+   * Sometimes there's no adjustments needed: all symbols in the reader have the
+   * same index in the reader's and writer's schema. This is a common case, and it
+   * allows for some optimization. To signal that this is the case,
+   * &lt;tt&gt;noAdjustmentsNeeded&lt;/tt&gt; is set to true.
+   */
+  public static class EnumAdjust extends Action {
+    public final int[] adjustments;
+    public final Object[] values;
+    public final boolean noAdjustmentsNeeded;
+
+    private EnumAdjust(Schema w, Schema r, GenericData d, int[] adj, Object[] values) {
+<span class="nc" id="L372">      super(w, r, d, Action.Type.ENUM);</span>
+<span class="nc" id="L373">      this.adjustments = adj;</span>
+      boolean noAdj;
+<span class="nc" id="L375">      int rsymCount = r.getEnumSymbols().size();</span>
+<span class="nc" id="L376">      int count = Math.min(rsymCount, adj.length);</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">      noAdj = (adj.length &lt;= rsymCount);</span>
+<span class="nc bnc" id="L378" title="All 4 branches missed.">      for (int i = 0; noAdj &amp;&amp; i &lt; count; i++) {</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">        noAdj &amp;= (i == adj[i]);</span>
+      }
+<span class="nc" id="L381">      this.noAdjustmentsNeeded = noAdj;</span>
+<span class="nc" id="L382">      this.values = values;</span>
+<span class="nc" id="L383">    }</span>
+
+    /**
+     * If writer and reader don't have same name, a
+     * {@link ErrorAction.ErrorType#NAMES_DONT_MATCH} is returned, otherwise an
+     * appropriate {@link EnumAdjust} is.
+     */
+    public static Action resolve(Schema w, Schema r, GenericData d) {
+<span class="nc bnc" id="L391" title="All 4 branches missed.">      if (w.getFullName() != null &amp;&amp; !w.getFullName().equals(r.getFullName()))</span>
+<span class="nc" id="L392">        return new ErrorAction(w, r, d, ErrorType.NAMES_DONT_MATCH);</span>
+
+<span class="nc" id="L394">      final List&lt;String&gt; wsymbols = w.getEnumSymbols();</span>
+<span class="nc" id="L395">      final List&lt;String&gt; rsymbols = r.getEnumSymbols();</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">      final int defaultIndex = (r.getEnumDefault() == null ? -1 : rsymbols.indexOf(r.getEnumDefault()));</span>
+<span class="nc" id="L397">      int[] adjustments = new int[wsymbols.size()];</span>
+<span class="nc" id="L398">      Object[] values = new Object[wsymbols.size()];</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">      Object defaultValue = (defaultIndex == -1) ? null : d.createEnum(r.getEnumDefault(), r);</span>
+<span class="nc bnc" id="L400" title="All 2 branches missed.">      for (int i = 0; i &lt; adjustments.length; i++) {</span>
+<span class="nc" id="L401">        int j = rsymbols.indexOf(wsymbols.get(i));</span>
+<span class="nc bnc" id="L402" title="All 2 branches missed.">        if (j &lt; 0) {</span>
+<span class="nc" id="L403">          j = defaultIndex;</span>
+        }
+<span class="nc" id="L405">        adjustments[i] = j;</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">        values[i] = (j == defaultIndex) ? defaultValue : d.createEnum(rsymbols.get(j), r);</span>
+      }
+<span class="nc" id="L408">      return new EnumAdjust(w, r, d, adjustments, values);</span>
+    }
+  }
+
+  /**
+   * This only appears inside {@link RecordAdjust#fieldActions}, i.e., the actions
+   * for adjusting the fields of a record. This action indicates that the writer's
+   * schema has a field that the reader's does &lt;em&gt;not&lt;/em&gt; have, and thus the
+   * field should be skipped. Since there is no corresponding reader's schema for
+   * the writer's in this case, the {@link Action#reader} field is &lt;tt&gt;null&lt;/tt&gt;
+   * for this subclass.
+   */
+  public static class Skip extends Action {
+    public Skip(Schema w, GenericData d) {
+<span class="nc" id="L422">      super(w, null, d, Action.Type.SKIP);</span>
+<span class="nc" id="L423">    }</span>
+  }
+
+  /**
+   * Instructions for resolving two record schemas. Includes instructions on how
+   * to recursively resolve each field, an indication of when to skip (writer
+   * fields), plus information about which reader fields should be populated by
+   * defaults (because the writer doesn't have corresponding fields).
+   */
+  public static class RecordAdjust extends Action {
+    /**
+     * An action for each field of the writer. If the corresponding field is to be
+     * skipped during reading, then this will contain a {@link Skip}. For fields to
+     * be read into the reading datum, will contain a regular action for resolving
+     * the writer/reader schemas of the matching fields.
+     */
+    public final Action[] fieldActions;
+
+    /**
+     * Contains (all of) the reader's fields. The first &lt;i&gt;n&lt;/i&gt; of these are the
+     * fields that will be read from the writer: these &lt;i&gt;n&lt;/i&gt; are in the order
+     * dictated by writer's schema. The remaining &lt;i&gt;m&lt;/i&gt; fields will be read from
+     * default values (actions for these default values are found in
+     * {@link RecordAdjust#defaults}.
+     */
+    public final Field[] readerOrder;
+
+    /**
+     * Pointer into {@link RecordAdjust#readerOrder} of the first reader field whose
+     * value comes from a default value. Set to length of
+     * {@link RecordAdjust#readerOrder} if there are none.
+     */
+    public final int firstDefault;
+
+    /**
+     * Contains the default values to be used for the last
+     * &lt;tt&gt;readerOrder.length-firstDefault&lt;/tt&gt; fields in rearderOrder. The
+     * &lt;tt&gt;i&lt;/tt&gt;th element of &lt;tt&gt;defaults&lt;/tt&gt; is the default value for the
+     * &lt;tt&gt;i+firstDefault&lt;/tt&gt; member of &lt;tt&gt;readerOrder&lt;/tt&gt;.
+     */
+    public final Object[] defaults;
+
+    /**
+     * Supplier that offers an optimized alternative to data.newRecord()
+     */
+    public final GenericData.InstanceSupplier instanceSupplier;
+
+    /**
+     * Returns true iff &lt;code&gt;i&amp;nbsp;==&amp;nbsp;readerOrder[i].pos()&lt;/code&gt; for all
+     * indices &lt;code&gt;i&lt;/code&gt;. Which is to say: the order of the reader's fields is
+     * the same in both the reader's and writer's schema.
+     */
+    public boolean noReorder() {
+<span class="nc" id="L476">      boolean result = true;</span>
+<span class="nc bnc" id="L477" title="All 4 branches missed.">      for (int i = 0; result &amp;&amp; i &lt; readerOrder.length; i++) {</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">        result &amp;= (i == readerOrder[i].pos());</span>
+      }
+<span class="nc" id="L480">      return result;</span>
+    }
+
+    private RecordAdjust(Schema w, Schema r, GenericData d, Action[] fa, Field[] ro, int firstD, Object[] defaults) {
+<span class="nc" id="L484">      super(w, r, d, Action.Type.RECORD);</span>
+<span class="nc" id="L485">      this.fieldActions = fa;</span>
+<span class="nc" id="L486">      this.readerOrder = ro;</span>
+<span class="nc" id="L487">      this.firstDefault = firstD;</span>
+<span class="nc" id="L488">      this.defaults = defaults;</span>
+<span class="nc" id="L489">      this.instanceSupplier = d.getNewRecordSupplier(r);</span>
+<span class="nc" id="L490">    }</span>
+
+    /**
+     * Returns a {@link RecordAdjust} for the two schemas, or an {@link ErrorAction}
+     * if there was a problem resolving. An {@link ErrorAction} is returned when
+     * either the two record-schemas don't have the same name, or if the writer is
+     * missing a field for which the reader does not have a default value.
+     *
+     * @throws RuntimeException if writer and reader schemas are not both records
+     */
+    static Action resolve(Schema writeSchema, Schema readSchema, GenericData data, Map&lt;SeenPair, Action&gt; seen) {
+<span class="nc" id="L501">      final SeenPair writeReadPair = new SeenPair(writeSchema, readSchema);</span>
+<span class="nc" id="L502">      Action result = seen.get(writeReadPair);</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">      if (result != null) {</span>
+<span class="nc" id="L504">        return result;</span>
+      }
+
+      /*
+       * Current implementation doesn't do this check. To pass regressions tests, we
+       * can't either. if (w.getFullName() != null &amp;&amp; !
+       * w.getFullName().equals(r.getFullName())) { result = new ErrorAction(w, r, d,
+       * ErrorType.NAMES_DONT_MATCH); seen.put(wr, result); return result; }
+       */
+<span class="nc" id="L513">      final List&lt;Field&gt; writeFields = writeSchema.getFields();</span>
+<span class="nc" id="L514">      final List&lt;Field&gt; readFields = readSchema.getFields();</span>
+
+<span class="nc" id="L516">      int firstDefault = 0;</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">      for (Schema.Field writeField : writeFields) {</span>
+        // The writeFields that are also in the readschema
+<span class="nc bnc" id="L519" title="All 2 branches missed.">        if (readSchema.getField(writeField.name()) != null) {</span>
+<span class="nc" id="L520">          ++firstDefault;</span>
+        }
+<span class="nc" id="L522">      }</span>
+<span class="nc" id="L523">      final Action[] actions = new Action[writeFields.size()];</span>
+<span class="nc" id="L524">      final Field[] reordered = new Field[readFields.size()];</span>
+<span class="nc" id="L525">      final Object[] defaults = new Object[reordered.length - firstDefault];</span>
+<span class="nc" id="L526">      result = new RecordAdjust(writeSchema, readSchema, data, actions, reordered, firstDefault, defaults);</span>
+<span class="nc" id="L527">      seen.put(writeReadPair, result); // Insert early to handle recursion</span>
+
+<span class="nc" id="L529">      int i = 0;</span>
+<span class="nc" id="L530">      int ridx = 0;</span>
+<span class="nc bnc" id="L531" title="All 2 branches missed.">      for (Field writeField : writeFields) {</span>
+<span class="nc" id="L532">        final Field readField = readSchema.getField(writeField.name());</span>
+<span class="nc bnc" id="L533" title="All 2 branches missed.">        if (readField != null) {</span>
+<span class="nc" id="L534">          reordered[ridx++] = readField;</span>
+<span class="nc" id="L535">          actions[i++] = Resolver.resolve(writeField.schema(), readField.schema(), data, seen);</span>
+        } else {
+<span class="nc" id="L537">          actions[i++] = new Skip(writeField.schema(), data);</span>
+        }
+<span class="nc" id="L539">      }</span>
+<span class="nc bnc" id="L540" title="All 2 branches missed.">      for (Field readField : readFields) {</span>
+        // The field is not in the writeSchema, so we can never read it
+        // Use the default value, or throw an error otherwise
+<span class="nc" id="L543">        final Field writeField = writeSchema.getField(readField.name());</span>
+<span class="nc bnc" id="L544" title="All 2 branches missed.">        if (writeField == null) {</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">          if (readField.defaultValue() == null) {</span>
+<span class="nc" id="L546">            result = new ErrorAction(writeSchema, readSchema, data, ErrorType.MISSING_REQUIRED_FIELD);</span>
+<span class="nc" id="L547">            seen.put(writeReadPair, result);</span>
+<span class="nc" id="L548">            return result;</span>
+          } else {
+<span class="nc" id="L550">            defaults[ridx - firstDefault] = data.getDefaultValue(readField);</span>
+<span class="nc" id="L551">            reordered[ridx++] = readField;</span>
+          }
+        }
+<span class="nc" id="L554">      }</span>
+<span class="nc" id="L555">      return result;</span>
+    }
+  }
+
+  /**
+   * In this case, the writer was a union. There are two subcases here:
+   *
+   * If the reader and writer are the same union, then the &lt;tt&gt;unionEquiv&lt;/tt&gt;
+   * variable is set to true and the &lt;tt&gt;actions&lt;/tt&gt; list holds the resolutions
+   * of each branch of the writer against the corresponding branch of the reader
+   * (which will result in no material resolution work, because the branches will
+   * be equivalent). If they reader is not a union or is a different union, then
+   * &lt;tt&gt;unionEquiv&lt;/tt&gt; is false and the &lt;tt&gt;actions&lt;/tt&gt; list holds the
+   * resolution of each of the writer's branches against the entire schema of the
+   * reader (if the reader is a union, that will result in ReaderUnion actions).
+   */
+  public static class WriterUnion extends Action {
+    public final Action[] actions;
+    public final boolean unionEquiv;
+
+    private WriterUnion(Schema w, Schema r, GenericData d, boolean ue, Action[] a) {
+<span class="nc" id="L576">      super(w, r, d, Action.Type.WRITER_UNION);</span>
+<span class="nc" id="L577">      unionEquiv = ue;</span>
+<span class="nc" id="L578">      actions = a;</span>
+<span class="nc" id="L579">    }</span>
+
+    public static Action resolve(Schema writeSchema, Schema readSchema, GenericData data, Map&lt;SeenPair, Action&gt; seen) {
+<span class="nc" id="L582">      boolean unionEquivalent = unionEquiv(writeSchema, readSchema, new HashMap&lt;&gt;());</span>
+<span class="nc" id="L583">      final List&lt;Schema&gt; writeTypes = writeSchema.getTypes();</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">      final List&lt;Schema&gt; readTypes = (unionEquivalent ? readSchema.getTypes() : null);</span>
+<span class="nc" id="L585">      int writeTypeLength = writeTypes.size();</span>
+<span class="nc" id="L586">      final Action[] actions = new Action[writeTypeLength];</span>
+<span class="nc bnc" id="L587" title="All 2 branches missed.">      for (int i = 0; i &lt; writeTypeLength; i++) {</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">        actions[i] = Resolver.resolve(writeTypes.get(i), (unionEquivalent ? readTypes.get(i) : readSchema), data, seen);</span>
+      }
+<span class="nc" id="L590">      return new WriterUnion(writeSchema, readSchema, data, unionEquivalent, actions);</span>
+    }
+  }
+
+  /**
+   * In this case, the reader is a union and the writer is not. For this case, we
+   * need to pick the first branch of the reader that matches the writer and
+   * pretend to the reader that the index of this branch was found in the writer's
+   * data stream.
+   *
+   * To support this case, the {@link ReaderUnion} object has two (public) fields:
+   * &lt;tt&gt;firstMatch&lt;/tt&gt; gives the index of the first matching branch in the
+   * reader's schema, and &lt;tt&gt;actualResolution&lt;/tt&gt; is the {@link Action} that
+   * resolves the writer's schema with the schema found in the &lt;tt&gt;firstMatch&lt;/tt&gt;
+   * branch of the reader's schema.
+   */
+  public static class ReaderUnion extends Action {
+    public final int firstMatch;
+    public final Action actualAction;
+
+    public ReaderUnion(Schema w, Schema r, GenericData d, int firstMatch, Action actual) {
+<span class="nc" id="L611">      super(w, r, d, Action.Type.READER_UNION);</span>
+<span class="nc" id="L612">      this.firstMatch = firstMatch;</span>
+<span class="nc" id="L613">      this.actualAction = actual;</span>
+<span class="nc" id="L614">    }</span>
+
+    /**
+     * Returns a {@link ReaderUnion} action for resolving &lt;tt&gt;w&lt;/tt&gt; and &lt;tt&gt;r&lt;/tt&gt;,
+     * or an {@link ErrorAction} if there is no branch in the reader that matches
+     * the writer.
+     *
+     * @throws RuntimeException if &lt;tt&gt;r&lt;/tt&gt; is not a union schema or &lt;tt&gt;w&lt;/tt&gt;
+     *                          &lt;em&gt;is&lt;/em&gt; a union schema
+     */
+    public static Action resolve(Schema w, Schema r, GenericData d, Map&lt;SeenPair, Action&gt; seen) {
+<span class="nc bnc" id="L625" title="All 2 branches missed.">      if (w.getType() == Schema.Type.UNION) {</span>
+<span class="nc" id="L626">        throw new IllegalArgumentException(&quot;Writer schema is union.&quot;);</span>
+      }
+<span class="nc" id="L628">      int i = firstMatchingBranch(w, r, d, seen);</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">      if (0 &lt;= i) {</span>
+<span class="nc" id="L630">        return new ReaderUnion(w, r, d, i, Resolver.resolve(w, r.getTypes().get(i), d, seen));</span>
+      }
+<span class="nc" id="L632">      return new ErrorAction(w, r, d, ErrorType.NO_MATCHING_BRANCH);</span>
+    }
+
+    // Note: This code was taken verbatim from the 1.8.x branch of Avro. It
+    // implements
+    // a &quot;soft match&quot; algorithm that seems to disagree with the spec. However, in
+    // the
+    // interest of &quot;bug-for-bug&quot; compatibility, we imported the old algorithm.
+    private static int firstMatchingBranch(Schema w, Schema r, GenericData d, Map&lt;SeenPair, Action&gt; seen) {
+<span class="nc" id="L641">      final Schema.Type vt = w.getType();</span>
+      // first scan for exact match
+<span class="nc" id="L643">      int j = 0;</span>
+<span class="nc" id="L644">      int structureMatch = -1;</span>
+<span class="nc bnc" id="L645" title="All 2 branches missed.">      for (Schema b : r.getTypes()) {</span>
+<span class="nc bnc" id="L646" title="All 2 branches missed.">        if (vt == b.getType()) {</span>
+<span class="nc bnc" id="L647" title="All 6 branches missed.">          if (vt == Schema.Type.RECORD || vt == Schema.Type.ENUM || vt == Schema.Type.FIXED) {</span>
+<span class="nc" id="L648">            final String vname = w.getFullName();</span>
+<span class="nc" id="L649">            final String bname = b.getFullName();</span>
+            // return immediately if the name matches exactly according to spec
+<span class="nc bnc" id="L651" title="All 4 branches missed.">            if (vname != null &amp;&amp; vname.equals(bname))</span>
+<span class="nc" id="L652">              return j;</span>
+
+<span class="nc bnc" id="L654" title="All 4 branches missed.">            if (vt == Schema.Type.RECORD &amp;&amp; !hasMatchError(RecordAdjust.resolve(w, b, d, seen))) {</span>
+<span class="nc" id="L655">              final String vShortName = w.getName();</span>
+<span class="nc" id="L656">              final String bShortName = b.getName();</span>
+              // use the first structure match or one where the name matches
+<span class="nc bnc" id="L658" title="All 6 branches missed.">              if ((structureMatch &lt; 0) || (vShortName != null &amp;&amp; vShortName.equals(bShortName))) {</span>
+<span class="nc" id="L659">                structureMatch = j;</span>
+              }
+            }
+<span class="nc" id="L662">          } else {</span>
+<span class="nc" id="L663">            return j;</span>
+          }
+        }
+<span class="nc" id="L666">        j++;</span>
+<span class="nc" id="L667">      }</span>
+
+      // if there is a record structure match, return it
+<span class="nc bnc" id="L670" title="All 2 branches missed.">      if (structureMatch &gt;= 0) {</span>
+<span class="nc" id="L671">        return structureMatch;</span>
+      }
+
+      // then scan match via numeric promotion
+<span class="nc" id="L675">      j = 0;</span>
+<span class="nc bnc" id="L676" title="All 2 branches missed.">      for (Schema b : r.getTypes()) {</span>
+<span class="nc bnc" id="L677" title="All 6 branches missed.">        switch (vt) {</span>
+        case INT:
+<span class="nc bnc" id="L679" title="All 2 branches missed.">          switch (b.getType()) {</span>
+          case LONG:
+          case DOUBLE:
+          case FLOAT:
+<span class="nc" id="L683">            return j;</span>
+          }
+<span class="nc" id="L685">          break;</span>
+        case LONG:
+<span class="nc bnc" id="L687" title="All 2 branches missed.">          switch (b.getType()) {</span>
+          case DOUBLE:
+          case FLOAT:
+<span class="nc" id="L690">            return j;</span>
+          }
+<span class="nc" id="L692">          break;</span>
+        case FLOAT:
+<span class="nc bnc" id="L694" title="All 2 branches missed.">          switch (b.getType()) {</span>
+          case DOUBLE:
+<span class="nc" id="L696">            return j;</span>
+          }
+<span class="nc" id="L698">          break;</span>
+        case STRING:
+<span class="nc bnc" id="L700" title="All 2 branches missed.">          switch (b.getType()) {</span>
+          case BYTES:
+<span class="nc" id="L702">            return j;</span>
+          }
+<span class="nc" id="L704">          break;</span>
+        case BYTES:
+<span class="nc bnc" id="L706" title="All 2 branches missed.">          switch (b.getType()) {</span>
+          case STRING:
+<span class="nc" id="L708">            return j;</span>
+          }
+          break;
+        }
+<span class="nc" id="L712">        j++;</span>
+<span class="nc" id="L713">      }</span>
+<span class="nc" id="L714">      return -1;</span>
+    }
+
+    private static boolean hasMatchError(Action action) {
+<span class="nc bnc" id="L718" title="All 2 branches missed.">      if (action instanceof ErrorAction)</span>
+<span class="nc" id="L719">        return true;</span>
+      else
+<span class="nc bnc" id="L721" title="All 2 branches missed.">        for (Action a : ((RecordAdjust) action).fieldActions) {</span>
+<span class="nc bnc" id="L722" title="All 2 branches missed.">          if (a instanceof ErrorAction) {</span>
+<span class="nc" id="L723">            return true;</span>
+          }
+        }
+<span class="nc" id="L726">      return false;</span>
+    }
+  }
+
+  private static boolean unionEquiv(Schema write, Schema read, Map&lt;SeenPair, Boolean&gt; seen) {
+<span class="nc" id="L731">    final Schema.Type wt = write.getType();</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">    if (wt != read.getType()) {</span>
+<span class="nc" id="L733">      return false;</span>
+    }
+
+    // Previously, the spec was somewhat ambiguous as to whether getFullName or
+    // getName should be used here. Using name rather than fully qualified name
+    // maintains backwards compatibility.
+<span class="nc bnc" id="L739" title="All 6 branches missed.">    if ((wt == Schema.Type.RECORD || wt == Schema.Type.FIXED || wt == Schema.Type.ENUM)</span>
+<span class="nc bnc" id="L740" title="All 4 branches missed.">        &amp;&amp; !(write.getName() == null || write.getName().equals(read.getName()))) {</span>
+<span class="nc" id="L741">      return false;</span>
+    }
+
+<span class="nc bnc" id="L744" title="All 8 branches missed.">    switch (wt) {</span>
+    case NULL:
+    case BOOLEAN:
+    case INT:
+    case LONG:
+    case FLOAT:
+    case DOUBLE:
+    case STRING:
+    case BYTES:
+<span class="nc" id="L753">      return true;</span>
+
+    case ARRAY:
+<span class="nc" id="L756">      return unionEquiv(write.getElementType(), read.getElementType(), seen);</span>
+    case MAP:
+<span class="nc" id="L758">      return unionEquiv(write.getValueType(), read.getValueType(), seen);</span>
+
+    case FIXED:
+<span class="nc bnc" id="L761" title="All 2 branches missed.">      return write.getFixedSize() == read.getFixedSize();</span>
+
+    case ENUM: {
+<span class="nc" id="L764">      final List&lt;String&gt; ws = write.getEnumSymbols();</span>
+<span class="nc" id="L765">      final List&lt;String&gt; rs = read.getEnumSymbols();</span>
+<span class="nc" id="L766">      return ws.equals(rs);</span>
+    }
+
+    case UNION: {
+<span class="nc" id="L770">      final List&lt;Schema&gt; wb = write.getTypes();</span>
+<span class="nc" id="L771">      final List&lt;Schema&gt; rb = read.getTypes();</span>
+<span class="nc bnc" id="L772" title="All 2 branches missed.">      if (wb.size() != rb.size()) {</span>
+<span class="nc" id="L773">        return false;</span>
+      }
+<span class="nc bnc" id="L775" title="All 2 branches missed.">      for (int i = 0; i &lt; wb.size(); i++) {</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">        if (!unionEquiv(wb.get(i), rb.get(i), seen)) {</span>
+<span class="nc" id="L777">          return false;</span>
+        }
+      }
+<span class="nc" id="L780">      return true;</span>
+    }
+
+    case RECORD: {
+<span class="nc" id="L784">      final SeenPair wsc = new SeenPair(write, read);</span>
+<span class="nc bnc" id="L785" title="All 2 branches missed.">      if (!seen.containsKey(wsc)) {</span>
+<span class="nc" id="L786">        seen.put(wsc, true); // Be optimistic, but we may change our minds</span>
+<span class="nc" id="L787">        final List&lt;Field&gt; wb = write.getFields();</span>
+<span class="nc" id="L788">        final List&lt;Field&gt; rb = read.getFields();</span>
+<span class="nc bnc" id="L789" title="All 2 branches missed.">        if (wb.size() != rb.size()) {</span>
+<span class="nc" id="L790">          seen.put(wsc, false);</span>
+        } else {
+<span class="nc bnc" id="L792" title="All 2 branches missed.">          for (int i = 0; i &lt; wb.size(); i++) {</span>
+            // Loop through each of the elements, and check if they are equal
+<span class="nc bnc" id="L794" title="All 2 branches missed.">            if (!wb.get(i).name().equals(rb.get(i).name())</span>
+<span class="nc bnc" id="L795" title="All 2 branches missed.">                || !unionEquiv(wb.get(i).schema(), rb.get(i).schema(), seen)) {</span>
+<span class="nc" id="L796">              seen.put(wsc, false);</span>
+<span class="nc" id="L797">              break;</span>
+            }
+          }
+        }
+      }
+<span class="nc" id="L802">      return seen.get(wsc);</span>
+    }
+    default:
+<span class="nc" id="L805">      throw new IllegalArgumentException(&quot;Unknown schema type: &quot; + write.getType());</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

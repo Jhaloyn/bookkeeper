@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>BinaryData.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">BinaryData.java</span></div><h1>BinaryData.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io;
+
+import java.io.IOException;
+
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.AvroRuntimeException;
+import org.apache.avro.generic.GenericDatumReader;
+
+/** Utilities for binary-encoded data. */
+public class BinaryData {
+
+  private BinaryData() {
+  } // no public ctor
+
+  private static class Decoders {
+    private final BinaryDecoder d1, d2;
+
+<span class="nc" id="L36">    public Decoders() {</span>
+<span class="nc" id="L37">      this.d1 = new BinaryDecoder(new byte[0], 0, 0);</span>
+<span class="nc" id="L38">      this.d2 = new BinaryDecoder(new byte[0], 0, 0);</span>
+<span class="nc" id="L39">    }</span>
+
+    public void set(byte[] data1, int off1, int len1, byte[] data2, int off2, int len2) {
+<span class="nc" id="L42">      d1.setBuf(data1, off1, len1);</span>
+<span class="nc" id="L43">      d2.setBuf(data2, off2, len2);</span>
+<span class="nc" id="L44">    }</span>
+
+    public void clear() {
+<span class="nc" id="L47">      d1.clearBuf();</span>
+<span class="nc" id="L48">      d2.clearBuf();</span>
+<span class="nc" id="L49">    }</span>
+  } // no public ctor
+
+<span class="fc" id="L52">  private static final ThreadLocal&lt;Decoders&gt; DECODERS = ThreadLocal.withInitial(Decoders::new);</span>
+
+  /**
+   * Compare binary encoded data. If equal, return zero. If greater-than, return
+   * 1, if less than return -1. Order is consistent with that of
+   * {@link org.apache.avro.generic.GenericData#compare(Object, Object, Schema)}.
+   */
+  public static int compare(byte[] b1, int s1, byte[] b2, int s2, Schema schema) {
+<span class="nc" id="L60">    return compare(b1, s1, b1.length - s1, b2, s2, b2.length - s2, schema);</span>
+  }
+
+  /**
+   * Compare binary encoded data. If equal, return zero. If greater-than, return
+   * 1, if less than return -1. Order is consistent with that of
+   * {@link org.apache.avro.generic.GenericData#compare(Object, Object, Schema)}.
+   */
+  public static int compare(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2, Schema schema) {
+<span class="nc" id="L69">    Decoders decoders = DECODERS.get();</span>
+<span class="nc" id="L70">    decoders.set(b1, s1, l1, b2, s2, l2);</span>
+    try {
+<span class="nc" id="L72">      return compare(decoders, schema);</span>
+<span class="nc" id="L73">    } catch (IOException e) {</span>
+<span class="nc" id="L74">      throw new AvroRuntimeException(e);</span>
+    } finally {
+<span class="nc" id="L76">      decoders.clear();</span>
+    }
+  }
+
+  /**
+   * If equal, return the number of bytes consumed. If greater than, return GT, if
+   * less than, return LT.
+   */
+  private static int compare(Decoders d, Schema schema) throws IOException {
+<span class="nc" id="L85">    Decoder d1 = d.d1;</span>
+<span class="nc" id="L86">    Decoder d2 = d.d2;</span>
+<span class="nc bnc" id="L87" title="All 13 branches missed.">    switch (schema.getType()) {</span>
+    case RECORD: {
+<span class="nc bnc" id="L89" title="All 2 branches missed.">      for (Field field : schema.getFields()) {</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (field.order() == Field.Order.IGNORE) {</span>
+<span class="nc" id="L91">          GenericDatumReader.skip(field.schema(), d1);</span>
+<span class="nc" id="L92">          GenericDatumReader.skip(field.schema(), d2);</span>
+<span class="nc" id="L93">          continue;</span>
+        }
+<span class="nc" id="L95">        int c = compare(d, field.schema());</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">        if (c != 0) {</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">          return (field.order() != Field.Order.DESCENDING) ? c : -c;</span>
+        }
+<span class="nc" id="L99">      }</span>
+<span class="nc" id="L100">      return 0;</span>
+    }
+    case ENUM:
+    case INT:
+<span class="nc" id="L104">      return Integer.compare(d1.readInt(), d2.readInt());</span>
+    case LONG:
+<span class="nc" id="L106">      return Long.compare(d1.readLong(), d2.readLong());</span>
+    case FLOAT:
+<span class="nc" id="L108">      return Float.compare(d1.readFloat(), d2.readFloat());</span>
+    case DOUBLE:
+<span class="nc" id="L110">      return Double.compare(d1.readDouble(), d2.readDouble());</span>
+    case BOOLEAN:
+<span class="nc" id="L112">      return Boolean.compare(d1.readBoolean(), d2.readBoolean());</span>
+    case ARRAY: {
+<span class="nc" id="L114">      long i = 0; // position in array</span>
+<span class="nc" id="L115">      long r1 = 0, r2 = 0; // remaining in current block</span>
+<span class="nc" id="L116">      long l1 = 0, l2 = 0; // total array length</span>
+      while (true) {
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (r1 == 0) { // refill blocks(s)</span>
+<span class="nc" id="L119">          r1 = d1.readLong();</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">          if (r1 &lt; 0) {</span>
+<span class="nc" id="L121">            r1 = -r1;</span>
+<span class="nc" id="L122">            d1.readLong();</span>
+          }
+<span class="nc" id="L124">          l1 += r1;</span>
+        }
+<span class="nc bnc" id="L126" title="All 2 branches missed.">        if (r2 == 0) {</span>
+<span class="nc" id="L127">          r2 = d2.readLong();</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">          if (r2 &lt; 0) {</span>
+<span class="nc" id="L129">            r2 = -r2;</span>
+<span class="nc" id="L130">            d2.readLong();</span>
+          }
+<span class="nc" id="L132">          l2 += r2;</span>
+        }
+<span class="nc bnc" id="L134" title="All 4 branches missed.">        if (r1 == 0 || r2 == 0) // empty block: done</span>
+<span class="nc" id="L135">          return Long.compare(l1, l2);</span>
+<span class="nc" id="L136">        long l = Math.min(l1, l2);</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">        while (i &lt; l) { // compare to end of block</span>
+<span class="nc" id="L138">          int c = compare(d, schema.getElementType());</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">          if (c != 0)</span>
+<span class="nc" id="L140">            return c;</span>
+<span class="nc" id="L141">          i++;</span>
+<span class="nc" id="L142">          r1--;</span>
+<span class="nc" id="L143">          r2--;</span>
+<span class="nc" id="L144">        }</span>
+<span class="nc" id="L145">      }</span>
+    }
+    case MAP:
+<span class="nc" id="L148">      throw new AvroRuntimeException(&quot;Can't compare maps!&quot;);</span>
+    case UNION: {
+<span class="nc" id="L150">      int i1 = d1.readInt();</span>
+<span class="nc" id="L151">      int i2 = d2.readInt();</span>
+<span class="nc" id="L152">      int c = Integer.compare(i1, i2);</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">      return c == 0 ? compare(d, schema.getTypes().get(i1)) : c;</span>
+    }
+    case FIXED: {
+<span class="nc" id="L156">      int size = schema.getFixedSize();</span>
+<span class="nc" id="L157">      int c = compareBytes(d.d1.getBuf(), d.d1.getPos(), size, d.d2.getBuf(), d.d2.getPos(), size);</span>
+<span class="nc" id="L158">      d.d1.skipFixed(size);</span>
+<span class="nc" id="L159">      d.d2.skipFixed(size);</span>
+<span class="nc" id="L160">      return c;</span>
+    }
+    case STRING:
+    case BYTES: {
+<span class="nc" id="L164">      int l1 = d1.readInt();</span>
+<span class="nc" id="L165">      int l2 = d2.readInt();</span>
+<span class="nc" id="L166">      int c = compareBytes(d.d1.getBuf(), d.d1.getPos(), l1, d.d2.getBuf(), d.d2.getPos(), l2);</span>
+<span class="nc" id="L167">      d.d1.skipFixed(l1);</span>
+<span class="nc" id="L168">      d.d2.skipFixed(l2);</span>
+<span class="nc" id="L169">      return c;</span>
+    }
+    case NULL:
+<span class="nc" id="L172">      return 0;</span>
+    default:
+<span class="nc" id="L174">      throw new AvroRuntimeException(&quot;Unexpected schema to compare!&quot;);</span>
+    }
+  }
+
+  /**
+   * Lexicographically compare bytes. If equal, return zero. If greater-than,
+   * return a positive value, if less than return a negative value.
+   */
+  public static int compareBytes(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2) {
+<span class="fc" id="L183">    int end1 = s1 + l1;</span>
+<span class="fc" id="L184">    int end2 = s2 + l2;</span>
+<span class="pc bpc" id="L185" title="3 of 4 branches missed.">    for (int i = s1, j = s2; i &lt; end1 &amp;&amp; j &lt; end2; i++, j++) {</span>
+<span class="nc" id="L186">      int a = (b1[i] &amp; 0xff);</span>
+<span class="nc" id="L187">      int b = (b2[j] &amp; 0xff);</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">      if (a != b) {</span>
+<span class="nc" id="L189">        return a - b;</span>
+      }
+    }
+<span class="fc" id="L192">    return l1 - l2;</span>
+  }
+
+  private static class HashData {
+    private final BinaryDecoder decoder;
+
+<span class="nc" id="L198">    public HashData() {</span>
+<span class="nc" id="L199">      this.decoder = new BinaryDecoder(new byte[0], 0, 0);</span>
+<span class="nc" id="L200">    }</span>
+
+    public void set(byte[] bytes, int start, int len) {
+<span class="nc" id="L203">      this.decoder.setBuf(bytes, start, len);</span>
+<span class="nc" id="L204">    }</span>
+  }
+
+<span class="fc" id="L207">  private static final ThreadLocal&lt;HashData&gt; HASH_DATA = ThreadLocal.withInitial(HashData::new);</span>
+
+  /**
+   * Hash binary encoded data. Consistent with
+   * {@link org.apache.avro.generic.GenericData#hashCode(Object, Schema)}.
+   */
+  public static int hashCode(byte[] bytes, int start, int length, Schema schema) {
+<span class="nc" id="L214">    HashData data = HASH_DATA.get();</span>
+<span class="nc" id="L215">    data.set(bytes, start, length);</span>
+    try {
+<span class="nc" id="L217">      return hashCode(data, schema);</span>
+<span class="nc" id="L218">    } catch (IOException e) {</span>
+<span class="nc" id="L219">      throw new AvroRuntimeException(e);</span>
+    }
+  }
+
+  private static int hashCode(HashData data, Schema schema) throws IOException {
+<span class="nc" id="L224">    Decoder decoder = data.decoder;</span>
+<span class="nc bnc" id="L225" title="All 14 branches missed.">    switch (schema.getType()) {</span>
+    case RECORD: {
+<span class="nc" id="L227">      int hashCode = 1;</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">      for (Field field : schema.getFields()) {</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if (field.order() == Field.Order.IGNORE) {</span>
+<span class="nc" id="L230">          GenericDatumReader.skip(field.schema(), decoder);</span>
+<span class="nc" id="L231">          continue;</span>
+        }
+<span class="nc" id="L233">        hashCode = hashCode * 31 + hashCode(data, field.schema());</span>
+<span class="nc" id="L234">      }</span>
+<span class="nc" id="L235">      return hashCode;</span>
+    }
+    case ENUM:
+    case INT:
+<span class="nc" id="L239">      return decoder.readInt();</span>
+    case BOOLEAN:
+<span class="nc" id="L241">      return Boolean.hashCode(decoder.readBoolean());</span>
+    case FLOAT:
+<span class="nc" id="L243">      return Float.hashCode(decoder.readFloat());</span>
+    case LONG:
+<span class="nc" id="L245">      return Long.hashCode(decoder.readLong());</span>
+    case DOUBLE:
+<span class="nc" id="L247">      return Double.hashCode(decoder.readDouble());</span>
+    case ARRAY: {
+<span class="nc" id="L249">      Schema elementType = schema.getElementType();</span>
+<span class="nc" id="L250">      int hashCode = 1;</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">      for (long l = decoder.readArrayStart(); l != 0; l = decoder.arrayNext()) {</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        for (long i = 0; i &lt; l; i++) {</span>
+<span class="nc" id="L253">          hashCode = hashCode * 31 + hashCode(data, elementType);</span>
+        }
+      }
+<span class="nc" id="L256">      return hashCode;</span>
+    }
+    case MAP:
+<span class="nc" id="L259">      throw new AvroRuntimeException(&quot;Can't hashCode maps!&quot;);</span>
+    case UNION:
+<span class="nc" id="L261">      return hashCode(data, schema.getTypes().get(decoder.readInt()));</span>
+    case FIXED:
+<span class="nc" id="L263">      return hashBytes(1, data, schema.getFixedSize(), false);</span>
+    case STRING:
+<span class="nc" id="L265">      return hashBytes(0, data, decoder.readInt(), false);</span>
+    case BYTES:
+<span class="nc" id="L267">      return hashBytes(1, data, decoder.readInt(), true);</span>
+    case NULL:
+<span class="nc" id="L269">      return 0;</span>
+    default:
+<span class="nc" id="L271">      throw new AvroRuntimeException(&quot;Unexpected schema to hashCode!&quot;);</span>
+    }
+  }
+
+  private static int hashBytes(int init, HashData data, int len, boolean rev) throws IOException {
+<span class="nc" id="L276">    int hashCode = init;</span>
+<span class="nc" id="L277">    byte[] bytes = data.decoder.getBuf();</span>
+<span class="nc" id="L278">    int start = data.decoder.getPos();</span>
+<span class="nc" id="L279">    int end = start + len;</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">    if (rev)</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">      for (int i = end - 1; i &gt;= start; i--)</span>
+<span class="nc" id="L282">        hashCode = hashCode * 31 + bytes[i];</span>
+    else
+<span class="nc bnc" id="L284" title="All 2 branches missed.">      for (int i = start; i &lt; end; i++)</span>
+<span class="nc" id="L285">        hashCode = hashCode * 31 + bytes[i];</span>
+<span class="nc" id="L286">    data.decoder.skipFixed(len);</span>
+<span class="nc" id="L287">    return hashCode;</span>
+  }
+
+  /** Skip a binary-encoded long, returning the position after it. */
+  public static int skipLong(final byte[] bytes, int start) {
+<span class="nc bnc" id="L292" title="All 2 branches missed.">    while ((bytes[start++] &amp; 0x80) != 0) {</span>
+    }
+<span class="nc" id="L294">    return start;</span>
+  }
+
+  /**
+   * Encode a boolean to the byte array at the given position. Will throw
+   * IndexOutOfBounds if the position is not valid.
+   * 
+   * @return The number of bytes written to the buffer, 1.
+   */
+  public static int encodeBoolean(boolean b, byte[] buf, int pos) {
+<span class="nc bnc" id="L304" title="All 2 branches missed.">    buf[pos] = b ? (byte) 1 : (byte) 0;</span>
+<span class="nc" id="L305">    return 1;</span>
+  }
+
+  /**
+   * Encode an integer to the byte array at the given position. Will throw
+   * IndexOutOfBounds if it overflows. Users should ensure that there are at least
+   * 5 bytes left in the buffer before calling this method.
+   * 
+   * @return The number of bytes written to the buffer, between 1 and 5.
+   */
+  public static int encodeInt(int n, byte[] buf, int pos) {
+    // move sign to low-order bit, and flip others if negative
+<span class="nc" id="L317">    n = (n &lt;&lt; 1) ^ (n &gt;&gt; 31);</span>
+<span class="nc" id="L318">    int start = pos;</span>
+<span class="nc bnc" id="L319" title="All 2 branches missed.">    if ((n &amp; ~0x7F) != 0) {</span>
+<span class="nc" id="L320">      buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L321">      n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">      if (n &gt; 0x7F) {</span>
+<span class="nc" id="L323">        buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L324">        n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">        if (n &gt; 0x7F) {</span>
+<span class="nc" id="L326">          buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L327">          n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">          if (n &gt; 0x7F) {</span>
+<span class="nc" id="L329">            buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L330">            n &gt;&gt;&gt;= 7;</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L335">    buf[pos++] = (byte) n;</span>
+<span class="nc" id="L336">    return pos - start;</span>
+  }
+
+  /**
+   * Encode a long to the byte array at the given position. Will throw
+   * IndexOutOfBounds if it overflows. Users should ensure that there are at least
+   * 10 bytes left in the buffer before calling this method.
+   * 
+   * @return The number of bytes written to the buffer, between 1 and 10.
+   */
+  public static int encodeLong(long n, byte[] buf, int pos) {
+    // move sign to low-order bit, and flip others if negative
+<span class="nc" id="L348">    n = (n &lt;&lt; 1) ^ (n &gt;&gt; 63);</span>
+<span class="nc" id="L349">    int start = pos;</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">    if ((n &amp; ~0x7FL) != 0) {</span>
+<span class="nc" id="L351">      buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L352">      n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">      if (n &gt; 0x7F) {</span>
+<span class="nc" id="L354">        buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L355">        n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">        if (n &gt; 0x7F) {</span>
+<span class="nc" id="L357">          buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L358">          n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L359" title="All 2 branches missed.">          if (n &gt; 0x7F) {</span>
+<span class="nc" id="L360">            buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L361">            n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L362" title="All 2 branches missed.">            if (n &gt; 0x7F) {</span>
+<span class="nc" id="L363">              buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L364">              n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">              if (n &gt; 0x7F) {</span>
+<span class="nc" id="L366">                buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L367">                n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">                if (n &gt; 0x7F) {</span>
+<span class="nc" id="L369">                  buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L370">                  n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L371" title="All 2 branches missed.">                  if (n &gt; 0x7F) {</span>
+<span class="nc" id="L372">                    buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L373">                    n &gt;&gt;&gt;= 7;</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                    if (n &gt; 0x7F) {</span>
+<span class="nc" id="L375">                      buf[pos++] = (byte) ((n | 0x80) &amp; 0xFF);</span>
+<span class="nc" id="L376">                      n &gt;&gt;&gt;= 7;</span>
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+<span class="nc" id="L386">    buf[pos++] = (byte) n;</span>
+<span class="nc" id="L387">    return pos - start;</span>
+  }
+
+  /**
+   * Encode a float to the byte array at the given position. Will throw
+   * IndexOutOfBounds if it overflows. Users should ensure that there are at least
+   * 4 bytes left in the buffer before calling this method.
+   * 
+   * @return Returns the number of bytes written to the buffer, 4.
+   */
+  public static int encodeFloat(float f, byte[] buf, int pos) {
+<span class="nc" id="L398">    final int bits = Float.floatToRawIntBits(f);</span>
+<span class="nc" id="L399">    buf[pos + 3] = (byte) (bits &gt;&gt;&gt; 24);</span>
+<span class="nc" id="L400">    buf[pos + 2] = (byte) (bits &gt;&gt;&gt; 16);</span>
+<span class="nc" id="L401">    buf[pos + 1] = (byte) (bits &gt;&gt;&gt; 8);</span>
+<span class="nc" id="L402">    buf[pos] = (byte) (bits);</span>
+<span class="nc" id="L403">    return 4;</span>
+  }
+
+  /**
+   * Encode a double to the byte array at the given position. Will throw
+   * IndexOutOfBounds if it overflows. Users should ensure that there are at least
+   * 8 bytes left in the buffer before calling this method.
+   * 
+   * @return Returns the number of bytes written to the buffer, 8.
+   */
+  public static int encodeDouble(double d, byte[] buf, int pos) {
+<span class="nc" id="L414">    final long bits = Double.doubleToRawLongBits(d);</span>
+<span class="nc" id="L415">    int first = (int) (bits &amp; 0xFFFFFFFF);</span>
+<span class="nc" id="L416">    int second = (int) ((bits &gt;&gt;&gt; 32) &amp; 0xFFFFFFFF);</span>
+    // the compiler seems to execute this order the best, likely due to
+    // register allocation -- the lifetime of constants is minimized.
+<span class="nc" id="L419">    buf[pos] = (byte) (first);</span>
+<span class="nc" id="L420">    buf[pos + 4] = (byte) (second);</span>
+<span class="nc" id="L421">    buf[pos + 5] = (byte) (second &gt;&gt;&gt; 8);</span>
+<span class="nc" id="L422">    buf[pos + 1] = (byte) (first &gt;&gt;&gt; 8);</span>
+<span class="nc" id="L423">    buf[pos + 2] = (byte) (first &gt;&gt;&gt; 16);</span>
+<span class="nc" id="L424">    buf[pos + 6] = (byte) (second &gt;&gt;&gt; 16);</span>
+<span class="nc" id="L425">    buf[pos + 7] = (byte) (second &gt;&gt;&gt; 24);</span>
+<span class="nc" id="L426">    buf[pos + 3] = (byte) (first &gt;&gt;&gt; 24);</span>
+<span class="nc" id="L427">    return 8;</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

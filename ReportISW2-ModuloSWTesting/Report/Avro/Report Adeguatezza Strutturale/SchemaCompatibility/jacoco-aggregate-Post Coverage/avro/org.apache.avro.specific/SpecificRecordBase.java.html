@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>SpecificRecordBase.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.specific</a> &gt; <span class="el_source">SpecificRecordBase.java</span></div><h1>SpecificRecordBase.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.specific;
+
+import java.io.Externalizable;
+import java.io.ObjectOutput;
+import java.io.ObjectInput;
+import java.io.IOException;
+
+import org.apache.avro.Conversion;
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.ResolvingDecoder;
+import org.apache.avro.io.Encoder;
+import org.apache.avro.message.MessageDecoder;
+import org.apache.avro.message.MessageEncoder;
+
+/** Base class for generated record classes. */
+<span class="nc" id="L34">public abstract class SpecificRecordBase</span>
+    implements SpecificRecord, Comparable&lt;SpecificRecord&gt;, GenericRecord, Externalizable {
+
+  @Override
+  public abstract Schema getSchema();
+
+  @Override
+  public abstract Object get(int field);
+
+  @Override
+  public abstract void put(int field, Object value);
+
+  public SpecificData getSpecificData() {
+    // Default implementation for backwards compatibility, overridden in generated
+    // code
+<span class="nc" id="L49">    return SpecificData.get();</span>
+  }
+
+  public Conversion&lt;?&gt; getConversion(int field) {
+    // for backward-compatibility. no older specific classes have conversions.
+<span class="nc" id="L54">    return null;</span>
+  }
+
+  @Override
+  public void put(String fieldName, Object value) {
+<span class="nc" id="L59">    put(getSchema().getField(fieldName).pos(), value);</span>
+<span class="nc" id="L60">  }</span>
+
+  @Override
+  public Object get(String fieldName) {
+<span class="nc" id="L64">    return get(getSchema().getField(fieldName).pos());</span>
+  }
+
+  public Conversion&lt;?&gt; getConversion(String fieldName) {
+<span class="nc" id="L68">    return getConversion(getSchema().getField(fieldName).pos());</span>
+  }
+
+  @Override
+  public boolean equals(Object that) {
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    if (that == this)</span>
+<span class="nc" id="L74">      return true; // identical object</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">    if (!(that instanceof SpecificRecord))</span>
+<span class="nc" id="L76">      return false; // not a record</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">    if (this.getClass() != that.getClass())</span>
+<span class="nc" id="L78">      return false; // not same schema</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">    return getSpecificData().compare(this, that, this.getSchema(), true) == 0;</span>
+  }
+
+  @Override
+  public int hashCode() {
+<span class="nc" id="L84">    return getSpecificData().hashCode(this, this.getSchema());</span>
+  }
+
+  @Override
+  public int compareTo(SpecificRecord that) {
+<span class="nc" id="L89">    return getSpecificData().compare(this, that, this.getSchema());</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L94">    return getSpecificData().toString(this);</span>
+  }
+
+  @Override
+  public void writeExternal(ObjectOutput out) throws IOException {
+<span class="nc" id="L99">    new SpecificDatumWriter(getSchema()).write(this, SpecificData.getEncoder(out));</span>
+<span class="nc" id="L100">  }</span>
+
+  @Override
+  public void readExternal(ObjectInput in) throws IOException {
+<span class="nc" id="L104">    new SpecificDatumReader(getSchema()).read(this, SpecificData.getDecoder(in));</span>
+<span class="nc" id="L105">  }</span>
+
+  /**
+   * Returns true iff an instance supports the {@link MessageEncoder#encode} and
+   * {@link MessageDecoder#decode} operations. Should only be used by
+   * &lt;code&gt;SpecificDatumReader/Writer&lt;/code&gt; to selectively use
+   * {@link #customEncode} and {@link #customDecode} to optimize the
+   * (de)serialization of values.
+   */
+  protected boolean hasCustomCoders() {
+<span class="nc" id="L115">    return false;</span>
+  }
+
+  public void customEncode(Encoder out) throws IOException {
+<span class="nc" id="L119">    throw new UnsupportedOperationException();</span>
+  }
+
+  public void customDecode(ResolvingDecoder in) throws IOException {
+<span class="nc" id="L123">    throw new UnsupportedOperationException();</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

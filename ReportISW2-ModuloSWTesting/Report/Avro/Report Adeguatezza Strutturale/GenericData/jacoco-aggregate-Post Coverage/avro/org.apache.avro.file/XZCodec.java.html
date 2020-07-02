@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>XZCodec.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.file</a> &gt; <span class="el_source">XZCodec.java</span></div><h1>XZCodec.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.file;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
+import org.apache.commons.compress.compressors.xz.XZCompressorOutputStream;
+import org.apache.commons.compress.utils.IOUtils;
+
+/** * Implements xz compression and decompression. */
+public class XZCodec extends Codec {
+  public final static int DEFAULT_COMPRESSION = 6;
+
+  static class Option extends CodecFactory {
+    private int compressionLevel;
+
+<span class="nc" id="L38">    Option(int compressionLevel) {</span>
+<span class="nc" id="L39">      this.compressionLevel = compressionLevel;</span>
+<span class="nc" id="L40">    }</span>
+
+    @Override
+    protected Codec createInstance() {
+<span class="nc" id="L44">      return new XZCodec(compressionLevel);</span>
+    }
+  }
+
+  private ByteArrayOutputStream outputBuffer;
+  private int compressionLevel;
+
+<span class="nc" id="L51">  public XZCodec(int compressionLevel) {</span>
+<span class="nc" id="L52">    this.compressionLevel = compressionLevel;</span>
+<span class="nc" id="L53">  }</span>
+
+  @Override
+  public String getName() {
+<span class="nc" id="L57">    return DataFileConstants.XZ_CODEC;</span>
+  }
+
+  @Override
+  public ByteBuffer compress(ByteBuffer data) throws IOException {
+<span class="nc" id="L62">    ByteArrayOutputStream baos = getOutputBuffer(data.remaining());</span>
+<span class="nc" id="L63">    try (OutputStream outputStream = new XZCompressorOutputStream(baos, compressionLevel)) {</span>
+<span class="nc" id="L64">      outputStream.write(data.array(), computeOffset(data), data.remaining());</span>
+    }
+<span class="nc" id="L66">    return ByteBuffer.wrap(baos.toByteArray());</span>
+  }
+
+  @Override
+  public ByteBuffer decompress(ByteBuffer data) throws IOException {
+<span class="nc" id="L71">    ByteArrayOutputStream baos = getOutputBuffer(data.remaining());</span>
+<span class="nc" id="L72">    InputStream bytesIn = new ByteArrayInputStream(data.array(), computeOffset(data), data.remaining());</span>
+
+<span class="nc" id="L74">    try (InputStream ios = new XZCompressorInputStream(bytesIn)) {</span>
+<span class="nc" id="L75">      IOUtils.copy(ios, baos);</span>
+    }
+<span class="nc" id="L77">    return ByteBuffer.wrap(baos.toByteArray());</span>
+  }
+
+  // get and initialize the output buffer for use.
+  private ByteArrayOutputStream getOutputBuffer(int suggestedLength) {
+<span class="nc bnc" id="L82" title="All 2 branches missed.">    if (null == outputBuffer) {</span>
+<span class="nc" id="L83">      outputBuffer = new ByteArrayOutputStream(suggestedLength);</span>
+    }
+<span class="nc" id="L85">    outputBuffer.reset();</span>
+<span class="nc" id="L86">    return outputBuffer;</span>
+  }
+
+  @Override
+  public int hashCode() {
+<span class="nc" id="L91">    return compressionLevel;</span>
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+<span class="nc bnc" id="L96" title="All 2 branches missed.">    if (this == obj)</span>
+<span class="nc" id="L97">      return true;</span>
+<span class="nc bnc" id="L98" title="All 4 branches missed.">    if (obj == null || obj.getClass() != getClass())</span>
+<span class="nc" id="L99">      return false;</span>
+<span class="nc" id="L100">    XZCodec other = (XZCodec) obj;</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">    return (this.compressionLevel == other.compressionLevel);</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L106">    return getName() + &quot;-&quot; + compressionLevel;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

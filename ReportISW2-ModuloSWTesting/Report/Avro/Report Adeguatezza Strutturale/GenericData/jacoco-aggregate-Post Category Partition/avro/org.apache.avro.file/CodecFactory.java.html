@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>CodecFactory.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.file</a> &gt; <span class="el_source">CodecFactory.java</span></div><h1>CodecFactory.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.file;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.zip.Deflater;
+
+import org.apache.avro.AvroRuntimeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Encapsulates the ability to specify and configure a compression codec.
+ *
+ * Currently there are three codecs registered by default:
+ * &lt;ul&gt;
+ * &lt;li&gt;{@code null}&lt;/li&gt;
+ * &lt;li&gt;{@code deflate}&lt;/li&gt;
+ * &lt;li&gt;{@code snappy}&lt;/li&gt;
+ * &lt;li&gt;{@code bzip2}&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * New and custom codecs can be registered using
+ * {@link #addCodec(String, CodecFactory)}.
+ */
+<span class="nc" id="L42">public abstract class CodecFactory {</span>
+<span class="nc" id="L43">  private static final Logger LOG = LoggerFactory.getLogger(CodecFactory.class);</span>
+
+  /** Null codec, for no compression. */
+  public static CodecFactory nullCodec() {
+<span class="nc" id="L47">    return NullCodec.OPTION;</span>
+  }
+
+  /**
+   * Deflate codec, with specific compression. compressionLevel should be between
+   * 1 and 9, inclusive.
+   */
+  public static CodecFactory deflateCodec(int compressionLevel) {
+<span class="nc" id="L55">    return new DeflateCodec.Option(compressionLevel);</span>
+  }
+
+  /**
+   * XZ codec, with specific compression. compressionLevel should be between 1 and
+   * 9, inclusive.
+   */
+  public static CodecFactory xzCodec(int compressionLevel) {
+<span class="nc" id="L63">    return new XZCodec.Option(compressionLevel);</span>
+  }
+
+  /** Snappy codec. */
+  public static CodecFactory snappyCodec() {
+    try {
+<span class="nc" id="L69">      return new SnappyCodec.Option();</span>
+<span class="nc" id="L70">    } catch (Throwable t) {</span>
+<span class="nc" id="L71">      LOG.debug(&quot;Snappy was not available&quot;, t);</span>
+<span class="nc" id="L72">      return null;</span>
+    }
+  }
+
+  /** bzip2 codec. */
+  public static CodecFactory bzip2Codec() {
+<span class="nc" id="L78">    return new BZip2Codec.Option();</span>
+  }
+
+  /**
+   * zstandard codec, with specific compression level.
+   *
+   * @param level The compression level should be between -5 and 22, inclusive.
+   *              Negative levels are 'fast' modes akin to lz4 or snappy, levels
+   *              above 9 are generally for archival purposes, and levels above 18
+   *              use a lot of memory.
+   */
+  public static CodecFactory zstandardCodec(int level) {
+<span class="nc" id="L90">    return new ZstandardCodec.Option(level, false);</span>
+  }
+
+  /**
+   * zstandard codec, with specific compression level.
+   *
+   * @param level       The compression level should be between -5 and 22,
+   *                    inclusive. Negative levels are 'fast' modes akin to lz4 or
+   *                    snappy, levels above 9 are generally for archival
+   *                    purposes, and levels above 18 use a lot of memory.
+   * @param useChecksum if true, will include a checksum with each data block
+   */
+  public static CodecFactory zstandardCodec(int level, boolean useChecksum) {
+<span class="nc" id="L103">    return new ZstandardCodec.Option(level, useChecksum);</span>
+  }
+
+  /** Creates internal Codec. */
+  protected abstract Codec createInstance();
+
+  /**
+   * Mapping of string names (stored as metas) and codecs. Note that currently
+   * options (like compression level) are not recoverable.
+   */
+<span class="nc" id="L113">  private static final Map&lt;String, CodecFactory&gt; REGISTERED = new HashMap&lt;&gt;();</span>
+
+  public static final int DEFAULT_DEFLATE_LEVEL = Deflater.DEFAULT_COMPRESSION;
+  public static final int DEFAULT_XZ_LEVEL = XZCodec.DEFAULT_COMPRESSION;
+  public static final int DEFAULT_ZSTANDARD_LEVEL = 3;
+
+  static {
+<span class="nc" id="L120">    addCodec(DataFileConstants.NULL_CODEC, nullCodec());</span>
+<span class="nc" id="L121">    addCodec(DataFileConstants.DEFLATE_CODEC, deflateCodec(DEFAULT_DEFLATE_LEVEL));</span>
+<span class="nc" id="L122">    addCodec(DataFileConstants.BZIP2_CODEC, bzip2Codec());</span>
+<span class="nc" id="L123">    addCodec(DataFileConstants.XZ_CODEC, xzCodec(DEFAULT_XZ_LEVEL));</span>
+<span class="nc" id="L124">    addCodec(DataFileConstants.ZSTANDARD_CODEC, zstandardCodec(DEFAULT_ZSTANDARD_LEVEL));</span>
+<span class="nc" id="L125">    addCodec(DataFileConstants.SNAPPY_CODEC, snappyCodec());</span>
+<span class="nc" id="L126">  }</span>
+
+  /**
+   * Maps a codec name into a CodecFactory.
+   *
+   * Currently there are six codecs registered by default:
+   * &lt;ul&gt;
+   * &lt;li&gt;{@code null}&lt;/li&gt;
+   * &lt;li&gt;{@code deflate}&lt;/li&gt;
+   * &lt;li&gt;{@code snappy}&lt;/li&gt;
+   * &lt;li&gt;{@code bzip2}&lt;/li&gt;
+   * &lt;li&gt;{@code xz}&lt;/li&gt;
+   * &lt;li&gt;{@code zstandard}&lt;/li&gt;
+   * &lt;/ul&gt;
+   */
+  public static CodecFactory fromString(String s) {
+<span class="nc" id="L142">    CodecFactory o = REGISTERED.get(s);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">    if (o == null) {</span>
+<span class="nc" id="L144">      throw new AvroRuntimeException(&quot;Unrecognized codec: &quot; + s);</span>
+    }
+<span class="nc" id="L146">    return o;</span>
+  }
+
+  /**
+   * Adds a new codec implementation. If name already had a codec associated with
+   * it, returns the previous codec.
+   */
+  public static CodecFactory addCodec(String name, CodecFactory c) {
+<span class="nc bnc" id="L154" title="All 2 branches missed.">    if (c != null) {</span>
+<span class="nc" id="L155">      return REGISTERED.put(name, c);</span>
+    }
+<span class="nc" id="L157">    return null;</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L162">    Codec instance = this.createInstance();</span>
+<span class="nc" id="L163">    return instance.toString();</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

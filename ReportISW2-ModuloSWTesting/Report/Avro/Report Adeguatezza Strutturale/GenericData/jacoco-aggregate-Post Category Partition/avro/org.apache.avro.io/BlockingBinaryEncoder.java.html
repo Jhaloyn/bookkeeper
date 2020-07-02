@@ -1,0 +1,569 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>BlockingBinaryEncoder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">BlockingBinaryEncoder.java</span></div><h1>BlockingBinaryEncoder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+
+import org.apache.avro.AvroTypeException;
+import org.apache.avro.Schema;
+
+/**
+ * A {@link BinaryEncoder} implementation that writes large arrays and maps as a
+ * sequence of blocks. So long as individual primitive values fit in memory,
+ * arbitrarily long arrays and maps may be written and subsequently read without
+ * exhausting memory. Values are buffered until the specified block size would
+ * be exceeded, minimizing block overhead.
+ * &lt;p/&gt;
+ * Use {@link EncoderFactory#blockingBinaryEncoder(OutputStream, BinaryEncoder)}
+ * to construct and configure.
+ * &lt;p/&gt;
+ * BlockingBinaryEncoder buffers writes, data may not appear on the output until
+ * {@link #flush()} is called.
+ * &lt;p/&gt;
+ * BlockingBinaryEncoder is not thread-safe
+ *
+ * @see BinaryEncoder
+ * @see EncoderFactory
+ * @see Encoder
+ */
+<span class="nc bnc" id="L47" title="All 2 branches missed.">public class BlockingBinaryEncoder extends BufferedBinaryEncoder {</span>
+
+  /*
+   * Implementation note:
+   *
+   * Blocking is complicated because of nesting. If a large, nested value
+   * overflows your buffer, you've got to do a lot of dancing around to output the
+   * blocks correctly.
+   *
+   * To handle this complexity, this class keeps a stack of blocked values: each
+   * time a new block is started (e.g., by a call to {@link #writeArrayStart}), an
+   * entry is pushed onto this stack.
+   *
+   * In this stack, we keep track of the state of a block. Blocks can be in two
+   * states. &quot;Regular&quot; blocks have a non-zero byte count. &quot;Overflow&quot; blocks help
+   * us deal with the case where a block contains a value that's too big to
+   * buffer. In this case, the block contains only one item, and we give it an
+   * unknown byte-count. Because these values (1,unknown) are fixed, we're able to
+   * write the header for these overflow blocks to the underlying stream without
+   * seeing the entire block. After writing this header, we've freed our buffer
+   * space to be fully devoted to blocking the large, inner value.
+   */
+
+<span class="nc bnc" id="L70" title="All 2 branches missed.">  private static class BlockedValue {</span>
+<span class="nc" id="L71">    public enum State {</span>
+      /**
+       * The bottom element of our stack represents being _outside_ of a blocked
+       * value.
+       */
+<span class="nc" id="L76">      ROOT,</span>
+
+      /**
+       * Represents the &quot;regular&quot; case, i.e., a blocked-value whose current block is
+       * fully contained in the buffer. In this case, {@link BlockedValue#start}
+       * points to the start of the blocks _data_ -- but no room has been left for a
+       * header! When this block is terminated, it's data will have to be moved over a
+       * bit to make room for the header.
+       */
+<span class="nc" id="L85">      REGULAR,</span>
+
+      /**
+       * Represents a blocked-value whose current block is in the overflow state. In
+       * this case, {@link BlockedValue#start} is zero. The header for such a block
+       * has _already been written_ (we've written out a header indicating that the
+       * block has a single item, and we put a &quot;zero&quot; down for the byte-count to
+       * indicate that we don't know the physical length of the buffer. Any blocks
+       * _containing_ this block must be in the {@link #OVERFLOW} state.
+       */
+<span class="nc" id="L95">      OVERFLOW</span>
+    }
+
+    /** The type of this blocked value (ARRAY or MAP). */
+    public Schema.Type type;
+
+    /** The state of this BlockedValue */
+    public State state;
+
+    /** The location in the buffer where this blocked value starts */
+    public int start;
+
+    /**
+     * The index one past the last byte for the previous item. If this is the first
+     * item, this is same as {@link #start}.
+     */
+    public int lastFullItem;
+
+    /**
+     * Number of items in this blocked value that are stored in the buffer.
+     */
+    public int items;
+
+    /** Number of items left to write */
+    public long itemsLeftToWrite;
+
+    /** Create a ROOT instance. */
+<span class="nc" id="L122">    public BlockedValue() {</span>
+<span class="nc" id="L123">      this.type = null;</span>
+<span class="nc" id="L124">      this.state = BlockedValue.State.ROOT;</span>
+<span class="nc" id="L125">      this.start = this.lastFullItem = 0;</span>
+<span class="nc" id="L126">      this.items = 1; // Makes various assertions work out</span>
+<span class="nc" id="L127">    }</span>
+
+    /**
+     * Check invariants of &lt;code&gt;this&lt;/code&gt; and also the &lt;code&gt;BlockedValue&lt;/code&gt;
+     * containing &lt;code&gt;this&lt;/code&gt;.
+     */
+    public boolean check(BlockedValue prev, int pos) {
+<span class="nc bnc" id="L134" title="All 6 branches missed.">      assert state != State.ROOT || type == null;</span>
+<span class="nc bnc" id="L135" title="All 8 branches missed.">      assert (state == State.ROOT || type == Schema.Type.ARRAY || type == Schema.Type.MAP);</span>
+
+<span class="nc bnc" id="L137" title="All 4 branches missed.">      assert 0 &lt;= items;</span>
+<span class="nc bnc" id="L138" title="All 6 branches missed.">      assert 0 != items || start == pos; // 0==items ==&gt; start==pos</span>
+<span class="nc bnc" id="L139" title="All 6 branches missed.">      assert 1 &lt; items || start == lastFullItem; // 1&lt;=items ==&gt; start==lFI</span>
+<span class="nc bnc" id="L140" title="All 6 branches missed.">      assert items &lt;= 1 || start &lt;= lastFullItem; // 1&lt;items ==&gt; start&lt;=lFI</span>
+<span class="nc bnc" id="L141" title="All 4 branches missed.">      assert lastFullItem &lt;= pos;</span>
+
+<span class="nc bnc" id="L143" title="All 4 branches missed.">      switch (state) {</span>
+      case ROOT:
+<span class="nc bnc" id="L145" title="All 4 branches missed.">        assert start == 0;</span>
+<span class="nc bnc" id="L146" title="All 4 branches missed.">        assert prev == null;</span>
+        break;
+      case REGULAR:
+<span class="nc bnc" id="L149" title="All 4 branches missed.">        assert start &gt;= 0;</span>
+<span class="nc bnc" id="L150" title="All 4 branches missed.">        assert prev.lastFullItem &lt;= start;</span>
+<span class="nc bnc" id="L151" title="All 4 branches missed.">        assert 1 &lt;= prev.items;</span>
+        break;
+      case OVERFLOW:
+<span class="nc bnc" id="L154" title="All 4 branches missed.">        assert start == 0;</span>
+<span class="nc bnc" id="L155" title="All 4 branches missed.">        assert items == 1;</span>
+<span class="nc bnc" id="L156" title="All 6 branches missed.">        assert prev.state == State.ROOT || prev.state == State.OVERFLOW;</span>
+        break;
+      }
+<span class="nc" id="L159">      return false;</span>
+    }
+  }
+
+  /**
+   * The buffer to hold the bytes before being written into the underlying stream.
+   */
+  private byte[] buf;
+
+  /**
+   * Index into the location in {@link #buf}, where next byte can be written.
+   */
+  private int pos;
+
+  /**
+   * The state stack.
+   */
+  private BlockedValue[] blockStack;
+<span class="nc" id="L177">  private int stackTop = -1;</span>
+  private static final int STACK_STEP = 10;
+
+  // buffer large enough for up to two ints for a block header
+  // rounded up to a multiple of 4 bytes.
+<span class="nc" id="L182">  private byte[] headerBuffer = new byte[12];</span>
+
+  private boolean check() {
+<span class="nc bnc" id="L185" title="All 4 branches missed.">    assert buf != null;</span>
+<span class="nc bnc" id="L186" title="All 4 branches missed.">    assert 0 &lt;= pos;</span>
+<span class="nc bnc" id="L187" title="All 4 branches missed.">    assert pos &lt;= buf.length : pos + &quot; &quot; + buf.length;</span>
+
+<span class="nc bnc" id="L189" title="All 4 branches missed.">    assert blockStack != null;</span>
+<span class="nc" id="L190">    BlockedValue prev = null;</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">    for (int i = 0; i &lt;= stackTop; i++) {</span>
+<span class="nc" id="L192">      BlockedValue v = blockStack[i];</span>
+<span class="nc" id="L193">      v.check(prev, pos);</span>
+<span class="nc" id="L194">      prev = v;</span>
+    }
+<span class="nc" id="L196">    return true;</span>
+  }
+
+  BlockingBinaryEncoder(OutputStream out, int blockBufferSize, int binaryEncoderBufferSize) {
+<span class="nc" id="L200">    super(out, binaryEncoderBufferSize);</span>
+<span class="nc" id="L201">    this.buf = new byte[blockBufferSize];</span>
+<span class="nc" id="L202">    this.pos = 0;</span>
+<span class="nc" id="L203">    blockStack = new BlockedValue[0];</span>
+<span class="nc" id="L204">    expandStack();</span>
+<span class="nc" id="L205">    BlockedValue bv = blockStack[++stackTop];</span>
+<span class="nc" id="L206">    bv.type = null;</span>
+<span class="nc" id="L207">    bv.state = BlockedValue.State.ROOT;</span>
+<span class="nc" id="L208">    bv.start = bv.lastFullItem = 0;</span>
+<span class="nc" id="L209">    bv.items = 1;</span>
+
+<span class="nc bnc" id="L211" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L212">  }</span>
+
+  private void expandStack() {
+<span class="nc" id="L215">    int oldLength = blockStack.length;</span>
+<span class="nc" id="L216">    blockStack = Arrays.copyOf(blockStack, blockStack.length + STACK_STEP);</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">    for (int i = oldLength; i &lt; blockStack.length; i++) {</span>
+<span class="nc" id="L218">      blockStack[i] = new BlockedValue();</span>
+    }
+<span class="nc" id="L220">  }</span>
+
+  BlockingBinaryEncoder configure(OutputStream out, int blockBufferSize, int binaryEncoderBufferSize) {
+<span class="nc" id="L223">    super.configure(out, binaryEncoderBufferSize);</span>
+<span class="nc" id="L224">    pos = 0;</span>
+<span class="nc" id="L225">    stackTop = 0;</span>
+<span class="nc bnc" id="L226" title="All 4 branches missed.">    if (null == buf || buf.length != blockBufferSize) {</span>
+<span class="nc" id="L227">      buf = new byte[blockBufferSize];</span>
+    }
+
+<span class="nc bnc" id="L230" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L231">    return this;</span>
+  }
+
+  @Override
+  public void flush() throws IOException {
+<span class="nc" id="L236">    BlockedValue bv = blockStack[stackTop];</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">    if (bv.state == BlockedValue.State.ROOT) {</span>
+<span class="nc" id="L238">      super.writeFixed(buf, 0, pos);</span>
+<span class="nc" id="L239">      pos = 0;</span>
+    } else {
+<span class="nc bnc" id="L241" title="All 2 branches missed.">      while (bv.state != BlockedValue.State.OVERFLOW) {</span>
+<span class="nc" id="L242">        compact();</span>
+      }
+    }
+<span class="nc" id="L245">    super.flush();</span>
+
+<span class="nc bnc" id="L247" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L248">  }</span>
+
+  @Override
+  public void writeBoolean(boolean b) throws IOException {
+<span class="nc" id="L252">    ensureBounds(1);</span>
+<span class="nc" id="L253">    pos += BinaryData.encodeBoolean(b, buf, pos);</span>
+<span class="nc" id="L254">  }</span>
+
+  @Override
+  public void writeInt(int n) throws IOException {
+<span class="nc" id="L258">    ensureBounds(5);</span>
+<span class="nc" id="L259">    pos += BinaryData.encodeInt(n, buf, pos);</span>
+<span class="nc" id="L260">  }</span>
+
+  @Override
+  public void writeLong(long n) throws IOException {
+<span class="nc" id="L264">    ensureBounds(10);</span>
+<span class="nc" id="L265">    pos += BinaryData.encodeLong(n, buf, pos);</span>
+<span class="nc" id="L266">  }</span>
+
+  @Override
+  public void writeFloat(float f) throws IOException {
+<span class="nc" id="L270">    ensureBounds(4);</span>
+<span class="nc" id="L271">    pos += BinaryData.encodeFloat(f, buf, pos);</span>
+<span class="nc" id="L272">  }</span>
+
+  @Override
+  public void writeDouble(double d) throws IOException {
+<span class="nc" id="L276">    ensureBounds(8);</span>
+<span class="nc" id="L277">    pos += BinaryData.encodeDouble(d, buf, pos);</span>
+<span class="nc" id="L278">  }</span>
+
+  @Override
+  public void writeFixed(byte[] bytes, int start, int len) throws IOException {
+<span class="nc" id="L282">    doWriteBytes(bytes, start, len);</span>
+<span class="nc" id="L283">  }</span>
+
+  @Override
+  public void writeFixed(ByteBuffer bytes) throws IOException {
+<span class="nc" id="L287">    int pos = bytes.position();</span>
+<span class="nc" id="L288">    int len = bytes.remaining();</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">    if (bytes.hasArray()) {</span>
+<span class="nc" id="L290">      doWriteBytes(bytes.array(), bytes.arrayOffset() + pos, len);</span>
+    } else {
+<span class="nc" id="L292">      byte[] b = new byte[len];</span>
+<span class="nc" id="L293">      bytes.duplicate().get(b, 0, len);</span>
+<span class="nc" id="L294">      doWriteBytes(b, 0, len);</span>
+    }
+<span class="nc" id="L296">  }</span>
+
+  @Override
+  protected void writeZero() throws IOException {
+<span class="nc" id="L300">    ensureBounds(1);</span>
+<span class="nc" id="L301">    buf[pos++] = (byte) 0;</span>
+<span class="nc" id="L302">  }</span>
+
+  @Override
+  public void writeArrayStart() throws IOException {
+<span class="nc bnc" id="L306" title="All 2 branches missed.">    if (stackTop + 1 == blockStack.length) {</span>
+<span class="nc" id="L307">      expandStack();</span>
+    }
+
+<span class="nc" id="L310">    BlockedValue bv = blockStack[++stackTop];</span>
+<span class="nc" id="L311">    bv.type = Schema.Type.ARRAY;</span>
+<span class="nc" id="L312">    bv.state = BlockedValue.State.REGULAR;</span>
+<span class="nc" id="L313">    bv.start = bv.lastFullItem = pos;</span>
+<span class="nc" id="L314">    bv.items = 0;</span>
+
+<span class="nc bnc" id="L316" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L317">  }</span>
+
+  @Override
+  public void setItemCount(long itemCount) throws IOException {
+<span class="nc" id="L321">    BlockedValue v = blockStack[stackTop];</span>
+<span class="nc bnc" id="L322" title="All 6 branches missed.">    assert v.type == Schema.Type.ARRAY || v.type == Schema.Type.MAP;</span>
+<span class="nc bnc" id="L323" title="All 4 branches missed.">    assert v.itemsLeftToWrite == 0;</span>
+<span class="nc" id="L324">    v.itemsLeftToWrite = itemCount;</span>
+
+<span class="nc bnc" id="L326" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L327">  }</span>
+
+  @Override
+  public void startItem() throws IOException {
+<span class="nc bnc" id="L331" title="All 2 branches missed.">    if (blockStack[stackTop].state == BlockedValue.State.OVERFLOW) {</span>
+<span class="nc" id="L332">      finishOverflow();</span>
+    }
+<span class="nc" id="L334">    BlockedValue t = blockStack[stackTop];</span>
+<span class="nc" id="L335">    t.items++;</span>
+<span class="nc" id="L336">    t.lastFullItem = pos;</span>
+<span class="nc" id="L337">    t.itemsLeftToWrite--;</span>
+
+<span class="nc bnc" id="L339" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L340">  }</span>
+
+  @Override
+  public void writeArrayEnd() throws IOException {
+<span class="nc" id="L344">    BlockedValue top = blockStack[stackTop];</span>
+<span class="nc bnc" id="L345" title="All 2 branches missed.">    if (top.type != Schema.Type.ARRAY) {</span>
+<span class="nc" id="L346">      throw new AvroTypeException(&quot;Called writeArrayEnd outside of an array.&quot;);</span>
+    }
+<span class="nc bnc" id="L348" title="All 2 branches missed.">    if (top.itemsLeftToWrite != 0) {</span>
+<span class="nc" id="L349">      throw new AvroTypeException(&quot;Failed to write expected number of array elements.&quot;);</span>
+    }
+<span class="nc" id="L351">    endBlockedValue();</span>
+
+<span class="nc bnc" id="L353" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L354">  }</span>
+
+  @Override
+  public void writeMapStart() throws IOException {
+<span class="nc bnc" id="L358" title="All 2 branches missed.">    if (stackTop + 1 == blockStack.length) {</span>
+<span class="nc" id="L359">      expandStack();</span>
+    }
+
+<span class="nc" id="L362">    BlockedValue bv = blockStack[++stackTop];</span>
+<span class="nc" id="L363">    bv.type = Schema.Type.MAP;</span>
+<span class="nc" id="L364">    bv.state = BlockedValue.State.REGULAR;</span>
+<span class="nc" id="L365">    bv.start = bv.lastFullItem = pos;</span>
+<span class="nc" id="L366">    bv.items = 0;</span>
+
+<span class="nc bnc" id="L368" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L369">  }</span>
+
+  @Override
+  public void writeMapEnd() throws IOException {
+<span class="nc" id="L373">    BlockedValue top = blockStack[stackTop];</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">    if (top.type != Schema.Type.MAP) {</span>
+<span class="nc" id="L375">      throw new AvroTypeException(&quot;Called writeMapEnd outside of a map.&quot;);</span>
+    }
+<span class="nc bnc" id="L377" title="All 2 branches missed.">    if (top.itemsLeftToWrite != 0) {</span>
+<span class="nc" id="L378">      throw new AvroTypeException(&quot;Failed to read write expected number of array elements.&quot;);</span>
+    }
+<span class="nc" id="L380">    endBlockedValue();</span>
+
+<span class="nc bnc" id="L382" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L383">  }</span>
+
+  @Override
+  public void writeIndex(int unionIndex) throws IOException {
+<span class="nc" id="L387">    ensureBounds(5);</span>
+<span class="nc" id="L388">    pos += BinaryData.encodeInt(unionIndex, buf, pos);</span>
+<span class="nc" id="L389">  }</span>
+
+  @Override
+  public int bytesBuffered() {
+<span class="nc" id="L393">    return pos + super.bytesBuffered();</span>
+  }
+
+  private void endBlockedValue() throws IOException {
+    for (;;) {
+<span class="nc bnc" id="L398" title="All 4 branches missed.">      assert check();</span>
+<span class="nc" id="L399">      BlockedValue t = blockStack[stackTop];</span>
+<span class="nc bnc" id="L400" title="All 4 branches missed.">      assert t.state != BlockedValue.State.ROOT;</span>
+<span class="nc bnc" id="L401" title="All 2 branches missed.">      if (t.state == BlockedValue.State.OVERFLOW) {</span>
+<span class="nc" id="L402">        finishOverflow();</span>
+      }
+<span class="nc bnc" id="L404" title="All 4 branches missed.">      assert t.state == BlockedValue.State.REGULAR;</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">      if (0 &lt; t.items) {</span>
+<span class="nc" id="L406">        int byteCount = pos - t.start;</span>
+<span class="nc bnc" id="L407" title="All 4 branches missed.">        if (t.start == 0 &amp;&amp; blockStack[stackTop - 1].state != BlockedValue.State.REGULAR) { // Lucky us -- don't have to</span>
+                                                                                            // move
+<span class="nc" id="L409">          super.writeInt(-t.items);</span>
+<span class="nc" id="L410">          super.writeInt(byteCount);</span>
+        } else {
+<span class="nc" id="L412">          int headerSize = 0;</span>
+<span class="nc" id="L413">          headerSize += BinaryData.encodeInt(-t.items, headerBuffer, headerSize);</span>
+<span class="nc" id="L414">          headerSize += BinaryData.encodeInt(byteCount, headerBuffer, headerSize);</span>
+<span class="nc bnc" id="L415" title="All 2 branches missed.">          if (buf.length &gt;= pos + headerSize) {</span>
+<span class="nc" id="L416">            pos += headerSize;</span>
+<span class="nc" id="L417">            final int m = t.start;</span>
+<span class="nc" id="L418">            System.arraycopy(buf, m, buf, m + headerSize, byteCount);</span>
+<span class="nc" id="L419">            System.arraycopy(headerBuffer, 0, buf, m, headerSize);</span>
+<span class="nc" id="L420">          } else {</span>
+<span class="nc" id="L421">            compact();</span>
+<span class="nc" id="L422">            continue;</span>
+          }
+        }
+      }
+<span class="nc" id="L426">      stackTop--;</span>
+<span class="nc" id="L427">      ensureBounds(1);</span>
+<span class="nc" id="L428">      buf[pos++] = 0; // Sentinel for last block in a blocked value</span>
+<span class="nc bnc" id="L429" title="All 4 branches missed.">      assert check();</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">      if (blockStack[stackTop].state == BlockedValue.State.ROOT) {</span>
+<span class="nc" id="L431">        flush();</span>
+      }
+<span class="nc" id="L433">      return;</span>
+    }
+  }
+
+  /**
+   * Called when we've finished writing the last item in an overflow buffer. When
+   * this is finished, the top of the stack will be an empty block in the
+   * &quot;regular&quot; state.
+   * 
+   * @throws IOException
+   */
+  private void finishOverflow() throws IOException {
+<span class="nc" id="L445">    BlockedValue s = blockStack[stackTop];</span>
+<span class="nc bnc" id="L446" title="All 2 branches missed.">    if (s.state != BlockedValue.State.OVERFLOW) {</span>
+<span class="nc" id="L447">      throw new IllegalStateException(&quot;Not an overflow block&quot;);</span>
+    }
+<span class="nc bnc" id="L449" title="All 4 branches missed.">    assert check();</span>
+
+    // Flush any remaining data for this block
+<span class="nc" id="L452">    super.writeFixed(buf, 0, pos);</span>
+<span class="nc" id="L453">    pos = 0;</span>
+
+    // Reset top of stack to be in REGULAR mode
+<span class="nc" id="L456">    s.state = BlockedValue.State.REGULAR;</span>
+<span class="nc" id="L457">    s.start = s.lastFullItem = 0;</span>
+<span class="nc" id="L458">    s.items = 0;</span>
+<span class="nc bnc" id="L459" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L460">  }</span>
+
+  private void ensureBounds(int l) throws IOException {
+<span class="nc bnc" id="L463" title="All 2 branches missed.">    while (buf.length &lt; (pos + l)) {</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">      if (blockStack[stackTop].state == BlockedValue.State.REGULAR) {</span>
+<span class="nc" id="L465">        compact();</span>
+      } else {
+<span class="nc" id="L467">        super.writeFixed(buf, 0, pos);</span>
+<span class="nc" id="L468">        pos = 0;</span>
+      }
+    }
+<span class="nc" id="L471">  }</span>
+
+  private void doWriteBytes(byte[] bytes, int start, int len) throws IOException {
+<span class="nc bnc" id="L474" title="All 2 branches missed.">    if (len &lt; buf.length) {</span>
+<span class="nc" id="L475">      ensureBounds(len);</span>
+<span class="nc" id="L476">      System.arraycopy(bytes, start, buf, pos, len);</span>
+<span class="nc" id="L477">      pos += len;</span>
+    } else {
+<span class="nc" id="L479">      ensureBounds(buf.length);</span>
+<span class="nc bnc" id="L480" title="All 6 branches missed.">      assert blockStack[stackTop].state == BlockedValue.State.ROOT</span>
+          || blockStack[stackTop].state == BlockedValue.State.OVERFLOW;
+<span class="nc" id="L482">      write(bytes, start, len);</span>
+    }
+<span class="nc" id="L484">  }</span>
+
+  private void write(byte[] b, int off, int len) throws IOException {
+<span class="nc bnc" id="L487" title="All 2 branches missed.">    if (blockStack[stackTop].state == BlockedValue.State.ROOT) {</span>
+<span class="nc" id="L488">      super.writeFixed(b, off, len);</span>
+    } else {
+<span class="nc bnc" id="L490" title="All 4 branches missed.">      assert check();</span>
+<span class="nc bnc" id="L491" title="All 2 branches missed.">      while (buf.length &lt; (pos + len)) {</span>
+<span class="nc bnc" id="L492" title="All 2 branches missed.">        if (blockStack[stackTop].state == BlockedValue.State.REGULAR) {</span>
+<span class="nc" id="L493">          compact();</span>
+        } else {
+<span class="nc" id="L495">          super.writeFixed(buf, 0, pos);</span>
+<span class="nc" id="L496">          pos = 0;</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">          if (buf.length &lt;= len) {</span>
+<span class="nc" id="L498">            super.writeFixed(b, off, len);</span>
+<span class="nc" id="L499">            len = 0;</span>
+          }
+        }
+      }
+<span class="nc" id="L503">      System.arraycopy(b, off, buf, pos, len);</span>
+<span class="nc" id="L504">      pos += len;</span>
+    }
+<span class="nc bnc" id="L506" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L507">  }</span>
+
+  /** Only call if you're there are REGULAR-state values on the stack. */
+  private void compact() throws IOException {
+<span class="nc bnc" id="L511" title="All 4 branches missed.">    assert check();</span>
+
+    // Find first REGULAR-state value
+<span class="nc" id="L514">    BlockedValue s = null;</span>
+    int i;
+<span class="nc bnc" id="L516" title="All 2 branches missed.">    for (i = 1; i &lt;= stackTop; i++) {</span>
+<span class="nc" id="L517">      s = blockStack[i];</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">      if (s.state == BlockedValue.State.REGULAR)</span>
+<span class="nc" id="L519">        break;</span>
+    }
+<span class="nc bnc" id="L521" title="All 4 branches missed.">    assert s != null;</span>
+
+    // We're going to transition &quot;s&quot; into the overflow state. To do
+    // this, We're going to flush any bytes prior to &quot;s&quot;, then write
+    // any full items of &quot;s&quot; into a block, start an overflow
+    // block, write any remaining bytes of &quot;s&quot; up to the start of the
+    // next more deeply-nested blocked-value, and finally move over
+    // any remaining bytes (which will be from more deeply-nested
+    // blocked values).
+
+    // Flush any bytes prios to &quot;s&quot;
+<span class="nc" id="L532">    super.writeFixed(buf, 0, s.start);</span>
+
+    // Write any full items of &quot;s&quot;
+<span class="nc bnc" id="L535" title="All 2 branches missed.">    if (1 &lt; s.items) {</span>
+<span class="nc" id="L536">      super.writeInt(-(s.items - 1));</span>
+<span class="nc" id="L537">      super.writeInt(s.lastFullItem - s.start);</span>
+<span class="nc" id="L538">      super.writeFixed(buf, s.start, s.lastFullItem - s.start);</span>
+<span class="nc" id="L539">      s.start = s.lastFullItem;</span>
+<span class="nc" id="L540">      s.items = 1;</span>
+    }
+
+    // Start an overflow block for s
+<span class="nc" id="L544">    super.writeInt(1);</span>
+
+    // Write any remaining bytes for &quot;s&quot;, up to the next-most
+    // deeply-nested value
+<span class="nc bnc" id="L548" title="All 2 branches missed.">    BlockedValue n = ((i + 1) &lt;= stackTop ? blockStack[i + 1] : null);</span>
+<span class="nc bnc" id="L549" title="All 2 branches missed.">    int end = (n == null ? pos : n.start);</span>
+<span class="nc" id="L550">    super.writeFixed(buf, s.lastFullItem, end - s.lastFullItem);</span>
+
+    // Move over any bytes that remain (and adjust indices)
+<span class="nc" id="L553">    System.arraycopy(buf, end, buf, 0, pos - end);</span>
+<span class="nc bnc" id="L554" title="All 2 branches missed.">    for (int j = i + 1; j &lt;= stackTop; j++) {</span>
+<span class="nc" id="L555">      n = blockStack[j];</span>
+<span class="nc" id="L556">      n.start -= end;</span>
+<span class="nc" id="L557">      n.lastFullItem -= end;</span>
+    }
+<span class="nc" id="L559">    pos -= end;</span>
+
+<span class="nc bnc" id="L561" title="All 4 branches missed.">    assert s.items == 1;</span>
+<span class="nc" id="L562">    s.start = s.lastFullItem = 0;</span>
+<span class="nc" id="L563">    s.state = BlockedValue.State.OVERFLOW;</span>
+
+<span class="nc bnc" id="L565" title="All 4 branches missed.">    assert check();</span>
+<span class="nc" id="L566">  }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

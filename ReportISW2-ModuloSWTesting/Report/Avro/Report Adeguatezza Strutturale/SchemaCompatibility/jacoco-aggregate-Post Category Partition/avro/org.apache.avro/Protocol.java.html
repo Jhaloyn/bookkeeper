@@ -1,0 +1,647 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Protocol.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro</a> &gt; <span class="el_source">Protocol.java</span></div><h1>Protocol.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro;
+
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.InputStream;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Set;
+import java.util.HashSet;
+
+import org.apache.avro.Schema.Field;
+import org.apache.avro.Schema.Field.Order;
+
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.JsonNode;
+
+/**
+ * A set of messages forming an application protocol.
+ * &lt;p&gt;
+ * A protocol consists of:
+ * &lt;ul&gt;
+ * &lt;li&gt;a &lt;i&gt;name&lt;/i&gt; for the protocol;
+ * &lt;li&gt;an optional &lt;i&gt;namespace&lt;/i&gt;, further qualifying the name;
+ * &lt;li&gt;a list of &lt;i&gt;types&lt;/i&gt;, or named {@link Schema schemas};
+ * &lt;li&gt;a list of &lt;i&gt;errors&lt;/i&gt;, or named {@link Schema schemas} for exceptions;
+ * &lt;li&gt;a list of named &lt;i&gt;messages&lt;/i&gt;, each of which specifies,
+ * &lt;ul&gt;
+ * &lt;li&gt;&lt;i&gt;request&lt;/i&gt;, the parameter schemas;
+ * &lt;li&gt;one of either;
+ * &lt;ul&gt;
+ * &lt;li&gt;one-way&lt;/li&gt;
+ * &lt;/ul&gt;
+ * or
+ * &lt;ul&gt;
+ * &lt;li&gt;&lt;i&gt;response&lt;/i&gt;, the response schema;
+ * &lt;li&gt;&lt;i&gt;errors&lt;/i&gt;, an optional list of potential error schema names.
+ * &lt;/ul&gt;
+ * &lt;/ul&gt;
+ * &lt;/ul&gt;
+ */
+public class Protocol extends JsonProperties {
+  /** The version of the protocol specification implemented here. */
+  public static final long VERSION = 1;
+
+  // Support properties for both Protocol and Message objects
+<span class="nc" id="L74">  private static final Set&lt;String&gt; MESSAGE_RESERVED = Collections</span>
+<span class="nc" id="L75">      .unmodifiableSet(new HashSet&lt;&gt;(Arrays.asList(&quot;doc&quot;, &quot;response&quot;, &quot;request&quot;, &quot;errors&quot;, &quot;one-way&quot;)));</span>
+
+<span class="nc" id="L77">  private static final Set&lt;String&gt; FIELD_RESERVED = Collections</span>
+<span class="nc" id="L78">      .unmodifiableSet(new HashSet&lt;&gt;(Arrays.asList(&quot;name&quot;, &quot;type&quot;, &quot;doc&quot;, &quot;default&quot;, &quot;aliases&quot;)));</span>
+
+  /** A protocol message. */
+  public class Message extends JsonProperties {
+    private String name;
+    private String doc;
+    private Schema request;
+
+    /** Construct a message. */
+<span class="nc" id="L87">    private Message(String name, String doc, JsonProperties propMap, Schema request) {</span>
+<span class="nc" id="L88">      super(MESSAGE_RESERVED);</span>
+<span class="nc" id="L89">      this.name = name;</span>
+<span class="nc" id="L90">      this.doc = doc;</span>
+<span class="nc" id="L91">      this.request = request;</span>
+
+<span class="nc bnc" id="L93" title="All 2 branches missed.">      if (propMap != null)</span>
+        // copy props
+<span class="nc" id="L95">        addAllProps(propMap);</span>
+<span class="nc" id="L96">    }</span>
+
+<span class="nc" id="L98">    private Message(String name, String doc, Map&lt;String, ?&gt; propMap, Schema request) {</span>
+<span class="nc" id="L99">      super(MESSAGE_RESERVED, propMap);</span>
+<span class="nc" id="L100">      this.name = name;</span>
+<span class="nc" id="L101">      this.doc = doc;</span>
+<span class="nc" id="L102">      this.request = request;</span>
+<span class="nc" id="L103">    }</span>
+
+    /** The name of this message. */
+    public String getName() {
+<span class="nc" id="L107">      return name;</span>
+    }
+
+    /** The parameters of this message. */
+    public Schema getRequest() {
+<span class="nc" id="L112">      return request;</span>
+    }
+
+    /** The returned data. */
+    public Schema getResponse() {
+<span class="nc" id="L117">      return Schema.create(Schema.Type.NULL);</span>
+    }
+
+    /** Errors that might be thrown. */
+    public Schema getErrors() {
+<span class="nc" id="L122">      return Schema.createUnion(Collections.emptyList());</span>
+    }
+
+    /** Returns true if this is a one-way message, with no response or errors. */
+    public boolean isOneWay() {
+<span class="nc" id="L127">      return true;</span>
+    }
+
+    @Override
+    public String toString() {
+      try {
+<span class="nc" id="L133">        StringWriter writer = new StringWriter();</span>
+<span class="nc" id="L134">        JsonGenerator gen = Schema.FACTORY.createGenerator(writer);</span>
+<span class="nc" id="L135">        toJson(gen);</span>
+<span class="nc" id="L136">        gen.flush();</span>
+<span class="nc" id="L137">        return writer.toString();</span>
+<span class="nc" id="L138">      } catch (IOException e) {</span>
+<span class="nc" id="L139">        throw new AvroRuntimeException(e);</span>
+      }
+    }
+
+    void toJson(JsonGenerator gen) throws IOException {
+<span class="nc" id="L144">      gen.writeStartObject();</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">      if (doc != null)</span>
+<span class="nc" id="L146">        gen.writeStringField(&quot;doc&quot;, doc);</span>
+<span class="nc" id="L147">      writeProps(gen); // write out properties</span>
+<span class="nc" id="L148">      gen.writeFieldName(&quot;request&quot;);</span>
+<span class="nc" id="L149">      request.fieldsToJson(types, gen);</span>
+
+<span class="nc" id="L151">      toJson1(gen);</span>
+<span class="nc" id="L152">      gen.writeEndObject();</span>
+<span class="nc" id="L153">    }</span>
+
+    void toJson1(JsonGenerator gen) throws IOException {
+<span class="nc" id="L156">      gen.writeStringField(&quot;response&quot;, &quot;null&quot;);</span>
+<span class="nc" id="L157">      gen.writeBooleanField(&quot;one-way&quot;, true);</span>
+<span class="nc" id="L158">    }</span>
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L162" title="All 2 branches missed.">      if (o == this)</span>
+<span class="nc" id="L163">        return true;</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">      if (!(o instanceof Message))</span>
+<span class="nc" id="L165">        return false;</span>
+<span class="nc" id="L166">      Message that = (Message) o;</span>
+<span class="nc bnc" id="L167" title="All 6 branches missed.">      return this.name.equals(that.name) &amp;&amp; this.request.equals(that.request) &amp;&amp; propsEqual(that);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L172">      return name.hashCode() + request.hashCode() + propsHashCode();</span>
+    }
+
+    public String getDoc() {
+<span class="nc" id="L176">      return doc;</span>
+    }
+
+  }
+
+  private class TwoWayMessage extends Message {
+    private Schema response;
+    private Schema errors;
+
+    /** Construct a message. */
+    private TwoWayMessage(String name, String doc, Map&lt;String, ?&gt; propMap, Schema request, Schema response,
+<span class="nc" id="L187">        Schema errors) {</span>
+<span class="nc" id="L188">      super(name, doc, propMap, request);</span>
+<span class="nc" id="L189">      this.response = response;</span>
+<span class="nc" id="L190">      this.errors = errors;</span>
+<span class="nc" id="L191">    }</span>
+
+    private TwoWayMessage(String name, String doc, JsonProperties propMap, Schema request, Schema response,
+<span class="nc" id="L194">        Schema errors) {</span>
+<span class="nc" id="L195">      super(name, doc, propMap, request);</span>
+<span class="nc" id="L196">      this.response = response;</span>
+<span class="nc" id="L197">      this.errors = errors;</span>
+<span class="nc" id="L198">    }</span>
+
+    @Override
+    public Schema getResponse() {
+<span class="nc" id="L202">      return response;</span>
+    }
+
+    @Override
+    public Schema getErrors() {
+<span class="nc" id="L207">      return errors;</span>
+    }
+
+    @Override
+    public boolean isOneWay() {
+<span class="nc" id="L212">      return false;</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L217" title="All 2 branches missed.">      if (!super.equals(o))</span>
+<span class="nc" id="L218">        return false;</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">      if (!(o instanceof TwoWayMessage))</span>
+<span class="nc" id="L220">        return false;</span>
+<span class="nc" id="L221">      TwoWayMessage that = (TwoWayMessage) o;</span>
+<span class="nc bnc" id="L222" title="All 4 branches missed.">      return this.response.equals(that.response) &amp;&amp; this.errors.equals(that.errors);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L227">      return super.hashCode() + response.hashCode() + errors.hashCode();</span>
+    }
+
+    @Override
+    void toJson1(JsonGenerator gen) throws IOException {
+<span class="nc" id="L232">      gen.writeFieldName(&quot;response&quot;);</span>
+<span class="nc" id="L233">      response.toJson(types, gen);</span>
+
+<span class="nc" id="L235">      List&lt;Schema&gt; errs = errors.getTypes(); // elide system error</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">      if (errs.size() &gt; 1) {</span>
+<span class="nc" id="L237">        Schema union = Schema.createUnion(errs.subList(1, errs.size()));</span>
+<span class="nc" id="L238">        gen.writeFieldName(&quot;errors&quot;);</span>
+<span class="nc" id="L239">        union.toJson(types, gen);</span>
+      }
+<span class="nc" id="L241">    }</span>
+
+  }
+
+  private String name;
+  private String namespace;
+  private String doc;
+
+<span class="nc" id="L249">  private Schema.Names types = new Schema.Names();</span>
+<span class="nc" id="L250">  private final Map&lt;String, Message&gt; messages = new LinkedHashMap&lt;&gt;();</span>
+  private byte[] md5;
+
+  /** An error that can be thrown by any message. */
+<span class="nc" id="L254">  public static final Schema SYSTEM_ERROR = Schema.create(Schema.Type.STRING);</span>
+
+  /** Union type for generating system errors. */
+<span class="nc" id="L257">  public static final Schema SYSTEM_ERRORS = Schema.createUnion(Collections.singletonList(SYSTEM_ERROR));</span>
+
+<span class="nc" id="L259">  private static final Set&lt;String&gt; PROTOCOL_RESERVED = Collections</span>
+<span class="nc" id="L260">      .unmodifiableSet(new HashSet&lt;&gt;(Arrays.asList(&quot;namespace&quot;, &quot;protocol&quot;, &quot;doc&quot;, &quot;messages&quot;, &quot;types&quot;, &quot;errors&quot;)));</span>
+
+  private Protocol() {
+<span class="nc" id="L263">    super(PROTOCOL_RESERVED);</span>
+<span class="nc" id="L264">  }</span>
+
+  /**
+   * Constructs a similar Protocol instance with the same {@code name},
+   * {@code doc}, and {@code namespace} as {code p} has. It also copies all the
+   * {@code props}.
+   */
+  public Protocol(Protocol p) {
+<span class="nc" id="L272">    this(p.getName(), p.getDoc(), p.getNamespace());</span>
+<span class="nc" id="L273">    putAll(p);</span>
+<span class="nc" id="L274">  }</span>
+
+  public Protocol(String name, String doc, String namespace) {
+<span class="nc" id="L277">    super(PROTOCOL_RESERVED);</span>
+<span class="nc" id="L278">    this.name = name;</span>
+<span class="nc" id="L279">    this.doc = doc;</span>
+<span class="nc" id="L280">    this.namespace = namespace;</span>
+<span class="nc" id="L281">  }</span>
+
+  public Protocol(String name, String namespace) {
+<span class="nc" id="L284">    this(name, null, namespace);</span>
+<span class="nc" id="L285">  }</span>
+
+  /** The name of this protocol. */
+  public String getName() {
+<span class="nc" id="L289">    return name;</span>
+  }
+
+  /** The namespace of this protocol. Qualifies its name. */
+  public String getNamespace() {
+<span class="nc" id="L294">    return namespace;</span>
+  }
+
+  /** Doc string for this protocol. */
+  public String getDoc() {
+<span class="nc" id="L299">    return doc;</span>
+  }
+
+  /** The types of this protocol. */
+  public Collection&lt;Schema&gt; getTypes() {
+<span class="nc" id="L304">    return types.values();</span>
+  }
+
+  /** Returns the named type. */
+  public Schema getType(String name) {
+<span class="nc" id="L309">    return types.get(name);</span>
+  }
+
+  /** Set the types of this protocol. */
+  public void setTypes(Collection&lt;Schema&gt; newTypes) {
+<span class="nc" id="L314">    types = new Schema.Names();</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">    for (Schema s : newTypes)</span>
+<span class="nc" id="L316">      types.add(s);</span>
+<span class="nc" id="L317">  }</span>
+
+  /** The messages of this protocol. */
+  public Map&lt;String, Message&gt; getMessages() {
+<span class="nc" id="L321">    return messages;</span>
+  }
+
+  /** Create a one-way message. */
+  @Deprecated
+  public Message createMessage(String name, String doc, Schema request) {
+<span class="nc" id="L327">    return new Message(name, doc, Collections.emptyMap(), request);</span>
+  }
+
+  /**
+   * Create a one-way message using the {@code name}, {@code doc}, and
+   * {@code props} of {@code m}.
+   */
+  public Message createMessage(Message m, Schema request) {
+<span class="nc" id="L335">    return new Message(name, doc, m, request);</span>
+  }
+
+  /** Create a one-way message. */
+  public &lt;T&gt; Message createMessage(String name, String doc, JsonProperties propMap, Schema request) {
+<span class="nc" id="L340">    return new Message(name, doc, propMap, request);</span>
+  }
+
+  /** Create a one-way message. */
+  public &lt;T&gt; Message createMessage(String name, String doc, Map&lt;String, ?&gt; propMap, Schema request) {
+<span class="nc" id="L345">    return new Message(name, doc, propMap, request);</span>
+  }
+
+  /** Create a two-way message. */
+  @Deprecated
+  public Message createMessage(String name, String doc, Schema request, Schema response, Schema errors) {
+<span class="nc" id="L351">    return new TwoWayMessage(name, doc, new LinkedHashMap&lt;String, String&gt;(), request, response, errors);</span>
+  }
+
+  /**
+   * Create a two-way message using the {@code name}, {@code doc}, and
+   * {@code props} of {@code m}.
+   */
+  public Message createMessage(Message m, Schema request, Schema response, Schema errors) {
+<span class="nc" id="L359">    return new TwoWayMessage(m.getName(), m.getDoc(), m, request, response, errors);</span>
+  }
+
+  /** Create a two-way message. */
+  public &lt;T&gt; Message createMessage(String name, String doc, JsonProperties propMap, Schema request, Schema response,
+      Schema errors) {
+<span class="nc" id="L365">    return new TwoWayMessage(name, doc, propMap, request, response, errors);</span>
+  }
+
+  /** Create a two-way message. */
+  public &lt;T&gt; Message createMessage(String name, String doc, Map&lt;String, ?&gt; propMap, Schema request, Schema response,
+      Schema errors) {
+<span class="nc" id="L371">    return new TwoWayMessage(name, doc, propMap, request, response, errors);</span>
+  }
+
+  @Override
+  public boolean equals(Object o) {
+<span class="nc bnc" id="L376" title="All 2 branches missed.">    if (o == this)</span>
+<span class="nc" id="L377">      return true;</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">    if (!(o instanceof Protocol))</span>
+<span class="nc" id="L379">      return false;</span>
+<span class="nc" id="L380">    Protocol that = (Protocol) o;</span>
+<span class="nc bnc" id="L381" title="All 6 branches missed.">    return this.name.equals(that.name) &amp;&amp; this.namespace.equals(that.namespace) &amp;&amp; this.types.equals(that.types)</span>
+<span class="nc bnc" id="L382" title="All 4 branches missed.">        &amp;&amp; this.messages.equals(that.messages) &amp;&amp; this.propsEqual(that);</span>
+  }
+
+  @Override
+  public int hashCode() {
+<span class="nc" id="L387">    return name.hashCode() + namespace.hashCode() + types.hashCode() + messages.hashCode() + propsHashCode();</span>
+  }
+
+  /** Render this as &lt;a href=&quot;https://json.org/&quot;&gt;JSON&lt;/a&gt;. */
+  @Override
+  public String toString() {
+<span class="nc" id="L393">    return toString(false);</span>
+  }
+
+  /**
+   * Render this as &lt;a href=&quot;https://json.org/&quot;&gt;JSON&lt;/a&gt;.
+   *
+   * @param pretty if true, pretty-print JSON.
+   */
+  public String toString(boolean pretty) {
+    try {
+<span class="nc" id="L403">      StringWriter writer = new StringWriter();</span>
+<span class="nc" id="L404">      JsonGenerator gen = Schema.FACTORY.createGenerator(writer);</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">      if (pretty)</span>
+<span class="nc" id="L406">        gen.useDefaultPrettyPrinter();</span>
+<span class="nc" id="L407">      toJson(gen);</span>
+<span class="nc" id="L408">      gen.flush();</span>
+<span class="nc" id="L409">      return writer.toString();</span>
+<span class="nc" id="L410">    } catch (IOException e) {</span>
+<span class="nc" id="L411">      throw new AvroRuntimeException(e);</span>
+    }
+  }
+
+  void toJson(JsonGenerator gen) throws IOException {
+<span class="nc" id="L416">    types.space(namespace);</span>
+
+<span class="nc" id="L418">    gen.writeStartObject();</span>
+<span class="nc" id="L419">    gen.writeStringField(&quot;protocol&quot;, name);</span>
+<span class="nc" id="L420">    gen.writeStringField(&quot;namespace&quot;, namespace);</span>
+
+<span class="nc bnc" id="L422" title="All 2 branches missed.">    if (doc != null)</span>
+<span class="nc" id="L423">      gen.writeStringField(&quot;doc&quot;, doc);</span>
+<span class="nc" id="L424">    writeProps(gen);</span>
+<span class="nc" id="L425">    gen.writeArrayFieldStart(&quot;types&quot;);</span>
+<span class="nc" id="L426">    Schema.Names resolved = new Schema.Names(namespace);</span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">    for (Schema type : types.values())</span>
+<span class="nc bnc" id="L428" title="All 2 branches missed.">      if (!resolved.contains(type))</span>
+<span class="nc" id="L429">        type.toJson(resolved, gen);</span>
+<span class="nc" id="L430">    gen.writeEndArray();</span>
+
+<span class="nc" id="L432">    gen.writeObjectFieldStart(&quot;messages&quot;);</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">    for (Map.Entry&lt;String, Message&gt; e : messages.entrySet()) {</span>
+<span class="nc" id="L434">      gen.writeFieldName(e.getKey());</span>
+<span class="nc" id="L435">      e.getValue().toJson(gen);</span>
+<span class="nc" id="L436">    }</span>
+<span class="nc" id="L437">    gen.writeEndObject();</span>
+<span class="nc" id="L438">    gen.writeEndObject();</span>
+<span class="nc" id="L439">  }</span>
+
+  /** Return the MD5 hash of the text of this protocol. */
+  public byte[] getMD5() {
+<span class="nc bnc" id="L443" title="All 2 branches missed.">    if (md5 == null)</span>
+      try {
+<span class="nc" id="L445">        md5 = MessageDigest.getInstance(&quot;MD5&quot;).digest(this.toString().getBytes(StandardCharsets.UTF_8));</span>
+<span class="nc" id="L446">      } catch (Exception e) {</span>
+<span class="nc" id="L447">        throw new AvroRuntimeException(e);</span>
+<span class="nc" id="L448">      }</span>
+<span class="nc" id="L449">    return md5;</span>
+  }
+
+  /** Read a protocol from a Json file. */
+  public static Protocol parse(File file) throws IOException {
+<span class="nc" id="L454">    return parse(Schema.FACTORY.createParser(file));</span>
+  }
+
+  /** Read a protocol from a Json stream. */
+  public static Protocol parse(InputStream stream) throws IOException {
+<span class="nc" id="L459">    return parse(Schema.FACTORY.createParser(stream));</span>
+  }
+
+  /** Read a protocol from one or more json strings */
+  public static Protocol parse(String string, String... more) {
+<span class="nc" id="L464">    StringBuilder b = new StringBuilder(string);</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">    for (String part : more)</span>
+<span class="nc" id="L466">      b.append(part);</span>
+<span class="nc" id="L467">    return parse(b.toString());</span>
+  }
+
+  /** Read a protocol from a Json string. */
+  public static Protocol parse(String string) {
+    try {
+<span class="nc" id="L473">      return parse(Schema.FACTORY.createParser(new ByteArrayInputStream(string.getBytes(StandardCharsets.UTF_8))));</span>
+<span class="nc" id="L474">    } catch (IOException e) {</span>
+<span class="nc" id="L475">      throw new AvroRuntimeException(e);</span>
+    }
+  }
+
+  private static Protocol parse(JsonParser parser) {
+    try {
+<span class="nc" id="L481">      Protocol protocol = new Protocol();</span>
+<span class="nc" id="L482">      protocol.parse((JsonNode) Schema.MAPPER.readTree(parser));</span>
+<span class="nc" id="L483">      return protocol;</span>
+<span class="nc" id="L484">    } catch (IOException e) {</span>
+<span class="nc" id="L485">      throw new SchemaParseException(e);</span>
+    }
+  }
+
+  private void parse(JsonNode json) {
+<span class="nc" id="L490">    parseNamespace(json);</span>
+<span class="nc" id="L491">    parseName(json);</span>
+<span class="nc" id="L492">    parseTypes(json);</span>
+<span class="nc" id="L493">    parseMessages(json);</span>
+<span class="nc" id="L494">    parseDoc(json);</span>
+<span class="nc" id="L495">    parseProps(json);</span>
+<span class="nc" id="L496">  }</span>
+
+  private void parseNamespace(JsonNode json) {
+<span class="nc" id="L499">    JsonNode nameNode = json.get(&quot;namespace&quot;);</span>
+<span class="nc bnc" id="L500" title="All 2 branches missed.">    if (nameNode == null)</span>
+<span class="nc" id="L501">      return; // no namespace defined</span>
+<span class="nc" id="L502">    this.namespace = nameNode.textValue();</span>
+<span class="nc" id="L503">    types.space(this.namespace);</span>
+<span class="nc" id="L504">  }</span>
+
+  private void parseDoc(JsonNode json) {
+<span class="nc" id="L507">    this.doc = parseDocNode(json);</span>
+<span class="nc" id="L508">  }</span>
+
+  private String parseDocNode(JsonNode json) {
+<span class="nc" id="L511">    JsonNode nameNode = json.get(&quot;doc&quot;);</span>
+<span class="nc bnc" id="L512" title="All 2 branches missed.">    if (nameNode == null)</span>
+<span class="nc" id="L513">      return null; // no doc defined</span>
+<span class="nc" id="L514">    return nameNode.textValue();</span>
+  }
+
+  private void parseName(JsonNode json) {
+<span class="nc" id="L518">    JsonNode nameNode = json.get(&quot;protocol&quot;);</span>
+<span class="nc bnc" id="L519" title="All 2 branches missed.">    if (nameNode == null)</span>
+<span class="nc" id="L520">      throw new SchemaParseException(&quot;No protocol name specified: &quot; + json);</span>
+<span class="nc" id="L521">    this.name = nameNode.textValue();</span>
+<span class="nc" id="L522">  }</span>
+
+  private void parseTypes(JsonNode json) {
+<span class="nc" id="L525">    JsonNode defs = json.get(&quot;types&quot;);</span>
+<span class="nc bnc" id="L526" title="All 2 branches missed.">    if (defs == null)</span>
+<span class="nc" id="L527">      return; // no types defined</span>
+<span class="nc bnc" id="L528" title="All 2 branches missed.">    if (!defs.isArray())</span>
+<span class="nc" id="L529">      throw new SchemaParseException(&quot;Types not an array: &quot; + defs);</span>
+<span class="nc bnc" id="L530" title="All 2 branches missed.">    for (JsonNode type : defs) {</span>
+<span class="nc bnc" id="L531" title="All 2 branches missed.">      if (!type.isObject())</span>
+<span class="nc" id="L532">        throw new SchemaParseException(&quot;Type not an object: &quot; + type);</span>
+<span class="nc" id="L533">      Schema.parse(type, types);</span>
+<span class="nc" id="L534">    }</span>
+<span class="nc" id="L535">  }</span>
+
+  private void parseProps(JsonNode json) {
+<span class="nc bnc" id="L538" title="All 2 branches missed.">    for (Iterator&lt;String&gt; i = json.fieldNames(); i.hasNext();) {</span>
+<span class="nc" id="L539">      String p = i.next(); // add non-reserved as props</span>
+<span class="nc bnc" id="L540" title="All 2 branches missed.">      if (!PROTOCOL_RESERVED.contains(p))</span>
+<span class="nc" id="L541">        this.addProp(p, json.get(p));</span>
+<span class="nc" id="L542">    }</span>
+<span class="nc" id="L543">  }</span>
+
+  private void parseMessages(JsonNode json) {
+<span class="nc" id="L546">    JsonNode defs = json.get(&quot;messages&quot;);</span>
+<span class="nc bnc" id="L547" title="All 2 branches missed.">    if (defs == null)</span>
+<span class="nc" id="L548">      return; // no messages defined</span>
+<span class="nc bnc" id="L549" title="All 2 branches missed.">    for (Iterator&lt;String&gt; i = defs.fieldNames(); i.hasNext();) {</span>
+<span class="nc" id="L550">      String prop = i.next();</span>
+<span class="nc" id="L551">      this.messages.put(prop, parseMessage(prop, defs.get(prop)));</span>
+<span class="nc" id="L552">    }</span>
+<span class="nc" id="L553">  }</span>
+
+  private Message parseMessage(String messageName, JsonNode json) {
+<span class="nc" id="L556">    String doc = parseDocNode(json);</span>
+
+<span class="nc" id="L558">    Map&lt;String, JsonNode&gt; mProps = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L559" title="All 2 branches missed.">    for (Iterator&lt;String&gt; i = json.fieldNames(); i.hasNext();) {</span>
+<span class="nc" id="L560">      String p = i.next(); // add non-reserved as props</span>
+<span class="nc bnc" id="L561" title="All 2 branches missed.">      if (!MESSAGE_RESERVED.contains(p))</span>
+<span class="nc" id="L562">        mProps.put(p, json.get(p));</span>
+<span class="nc" id="L563">    }</span>
+
+<span class="nc" id="L565">    JsonNode requestNode = json.get(&quot;request&quot;);</span>
+<span class="nc bnc" id="L566" title="All 4 branches missed.">    if (requestNode == null || !requestNode.isArray())</span>
+<span class="nc" id="L567">      throw new SchemaParseException(&quot;No request specified: &quot; + json);</span>
+<span class="nc" id="L568">    List&lt;Field&gt; fields = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L569" title="All 2 branches missed.">    for (JsonNode field : requestNode) {</span>
+<span class="nc" id="L570">      JsonNode fieldNameNode = field.get(&quot;name&quot;);</span>
+<span class="nc bnc" id="L571" title="All 2 branches missed.">      if (fieldNameNode == null)</span>
+<span class="nc" id="L572">        throw new SchemaParseException(&quot;No param name: &quot; + field);</span>
+<span class="nc" id="L573">      JsonNode fieldTypeNode = field.get(&quot;type&quot;);</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">      if (fieldTypeNode == null)</span>
+<span class="nc" id="L575">        throw new SchemaParseException(&quot;No param type: &quot; + field);</span>
+<span class="nc" id="L576">      String name = fieldNameNode.textValue();</span>
+<span class="nc" id="L577">      String fieldDoc = null;</span>
+<span class="nc" id="L578">      JsonNode fieldDocNode = field.get(&quot;doc&quot;);</span>
+<span class="nc bnc" id="L579" title="All 2 branches missed.">      if (fieldDocNode != null)</span>
+<span class="nc" id="L580">        fieldDoc = fieldDocNode.textValue();</span>
+<span class="nc" id="L581">      Field newField = new Field(name, Schema.parse(fieldTypeNode, types), fieldDoc, field.get(&quot;default&quot;), true,</span>
+          Order.ASCENDING);
+<span class="nc" id="L583">      Set&lt;String&gt; aliases = Schema.parseAliases(field);</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">      if (aliases != null) { // add aliases</span>
+<span class="nc bnc" id="L585" title="All 2 branches missed.">        for (String alias : aliases)</span>
+<span class="nc" id="L586">          newField.addAlias(alias);</span>
+      }
+
+<span class="nc" id="L589">      Iterator&lt;String&gt; i = field.fieldNames();</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">      while (i.hasNext()) { // add properties</span>
+<span class="nc" id="L591">        String prop = i.next();</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">        if (!FIELD_RESERVED.contains(prop)) // ignore reserved</span>
+<span class="nc" id="L593">          newField.addProp(prop, field.get(prop));</span>
+<span class="nc" id="L594">      }</span>
+<span class="nc" id="L595">      fields.add(newField);</span>
+<span class="nc" id="L596">    }</span>
+<span class="nc" id="L597">    Schema request = Schema.createRecord(fields);</span>
+
+<span class="nc" id="L599">    boolean oneWay = false;</span>
+<span class="nc" id="L600">    JsonNode oneWayNode = json.get(&quot;one-way&quot;);</span>
+<span class="nc bnc" id="L601" title="All 2 branches missed.">    if (oneWayNode != null) {</span>
+<span class="nc bnc" id="L602" title="All 2 branches missed.">      if (!oneWayNode.isBoolean())</span>
+<span class="nc" id="L603">        throw new SchemaParseException(&quot;one-way must be boolean: &quot; + json);</span>
+<span class="nc" id="L604">      oneWay = oneWayNode.booleanValue();</span>
+    }
+
+<span class="nc" id="L607">    JsonNode responseNode = json.get(&quot;response&quot;);</span>
+<span class="nc bnc" id="L608" title="All 4 branches missed.">    if (!oneWay &amp;&amp; responseNode == null)</span>
+<span class="nc" id="L609">      throw new SchemaParseException(&quot;No response specified: &quot; + json);</span>
+
+<span class="nc" id="L611">    JsonNode decls = json.get(&quot;errors&quot;);</span>
+
+<span class="nc bnc" id="L613" title="All 2 branches missed.">    if (oneWay) {</span>
+<span class="nc bnc" id="L614" title="All 2 branches missed.">      if (decls != null)</span>
+<span class="nc" id="L615">        throw new SchemaParseException(&quot;one-way can't have errors: &quot; + json);</span>
+<span class="nc bnc" id="L616" title="All 4 branches missed.">      if (responseNode != null &amp;&amp; Schema.parse(responseNode, types).getType() != Schema.Type.NULL)</span>
+<span class="nc" id="L617">        throw new SchemaParseException(&quot;One way response must be null: &quot; + json);</span>
+<span class="nc" id="L618">      return new Message(messageName, doc, mProps, request);</span>
+    }
+
+<span class="nc" id="L621">    Schema response = Schema.parse(responseNode, types);</span>
+
+<span class="nc" id="L623">    List&lt;Schema&gt; errs = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L624">    errs.add(SYSTEM_ERROR); // every method can throw</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">    if (decls != null) {</span>
+<span class="nc bnc" id="L626" title="All 2 branches missed.">      if (!decls.isArray())</span>
+<span class="nc" id="L627">        throw new SchemaParseException(&quot;Errors not an array: &quot; + json);</span>
+<span class="nc bnc" id="L628" title="All 2 branches missed.">      for (JsonNode decl : decls) {</span>
+<span class="nc" id="L629">        String name = decl.textValue();</span>
+<span class="nc" id="L630">        Schema schema = this.types.get(name);</span>
+<span class="nc bnc" id="L631" title="All 2 branches missed.">        if (schema == null)</span>
+<span class="nc" id="L632">          throw new SchemaParseException(&quot;Undefined error: &quot; + name);</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">        if (!schema.isError())</span>
+<span class="nc" id="L634">          throw new SchemaParseException(&quot;Not an error: &quot; + name);</span>
+<span class="nc" id="L635">        errs.add(schema);</span>
+<span class="nc" id="L636">      }</span>
+    }
+
+<span class="nc" id="L639">    return new TwoWayMessage(messageName, doc, mProps, request, response, Schema.createUnion(errs));</span>
+  }
+
+  public static void main(String[] args) throws Exception {
+<span class="nc" id="L643">    System.out.println(Protocol.parse(new File(args[0])));</span>
+<span class="nc" id="L644">  }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

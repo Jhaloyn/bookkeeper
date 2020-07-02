@@ -1,0 +1,352 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>EncoderFactory.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">EncoderFactory.java</span></div><h1>EncoderFactory.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io;
+
+import java.io.IOException;
+import java.io.OutputStream;
+
+import org.apache.avro.AvroRuntimeException;
+import org.apache.avro.Schema;
+import com.fasterxml.jackson.core.JsonGenerator;
+
+/**
+ * A factory for creating and configuring {@link Encoder} instances.
+ * &lt;p/&gt;
+ * Factory methods that create Encoder instances are thread-safe. Multiple
+ * instances with different configurations can be cached by an application.
+ *
+ * @see Encoder
+ * @see BinaryEncoder
+ * @see JsonEncoder
+ * @see ValidatingEncoder
+ * @see BufferedBinaryEncoder
+ * @see BlockingBinaryEncoder
+ * @see DirectBinaryEncoder
+ */
+
+<span class="nc" id="L42">public class EncoderFactory {</span>
+  private static final int DEFAULT_BUFFER_SIZE = 2048;
+  private static final int DEFAULT_BLOCK_BUFFER_SIZE = 64 * 1024;
+  private static final int MIN_BLOCK_BUFFER_SIZE = 64;
+  private static final int MAX_BLOCK_BUFFER_SIZE = 1024 * 1024 * 1024;
+
+<span class="nc" id="L48">  private static final EncoderFactory DEFAULT_FACTORY = new DefaultEncoderFactory();</span>
+
+<span class="nc" id="L50">  protected int binaryBufferSize = DEFAULT_BUFFER_SIZE;</span>
+<span class="nc" id="L51">  protected int binaryBlockSize = DEFAULT_BLOCK_BUFFER_SIZE;</span>
+
+  /**
+   * Returns an immutable static DecoderFactory with default configuration. All
+   * configuration methods throw AvroRuntimeExceptions if called.
+   */
+  public static EncoderFactory get() {
+<span class="nc" id="L58">    return DEFAULT_FACTORY;</span>
+  }
+
+  /**
+   * Configures this factory to use the specified buffer size when creating
+   * Encoder instances that buffer their output. The default buffer size is 2048
+   * bytes.
+   *
+   * @param size The buffer size to configure new instances with. Valid values are
+   *             in the range [32, 16*1024*1024]. Values outside this range are
+   *             set to the nearest value in the range. Values less than 256 will
+   *             limit performance but will consume less memory if the
+   *             BinaryEncoder is short-lived, values greater than 8*1024 are not
+   *             likely to improve performance but may be useful for the
+   *             downstream OutputStream.
+   * @return This factory, to enable method chaining:
+   * 
+   *         &lt;pre&gt;
+   *         EncoderFactory factory = new EncoderFactory().configureBufferSize(4096);
+   *         &lt;/pre&gt;
+   * 
+   * @see #binaryEncoder(OutputStream, BinaryEncoder)
+   */
+  public EncoderFactory configureBufferSize(int size) {
+<span class="nc bnc" id="L82" title="All 2 branches missed.">    if (size &lt; 32)</span>
+<span class="nc" id="L83">      size = 32;</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">    if (size &gt; 16 * 1024 * 1024)</span>
+<span class="nc" id="L85">      size = 16 * 1024 * 1024;</span>
+<span class="nc" id="L86">    this.binaryBufferSize = size;</span>
+<span class="nc" id="L87">    return this;</span>
+  }
+
+  /**
+   * Returns this factory's configured default buffer size. Used when creating
+   * Encoder instances that buffer writes.
+   * 
+   * @see #configureBufferSize(int)
+   * @see #binaryEncoder(OutputStream, BinaryEncoder)
+   * @return The preferred buffer size, in bytes.
+   */
+  public int getBufferSize() {
+<span class="nc" id="L99">    return this.binaryBufferSize;</span>
+  }
+
+  /**
+   * Configures this factory to construct blocking BinaryEncoders with the
+   * specified block buffer size. The default buffer size is 64 * 1024 bytes.
+   *
+   * @param size The preferred block size for array blocking. Arrays larger than
+   *             this size will be segmented into blocks according to the Avro
+   *             spec. Valid values are in the range [64, 1024*1024*1024] Values
+   *             outside this range are set to the nearest value in the range. The
+   *             encoder will require at least this amount of memory.
+   * @return This factory, to enable method chaining:
+   * 
+   *         &lt;pre&gt;
+   *         EncoderFactory factory = new EncoderFactory().configureBlockSize(8000);
+   *         &lt;/pre&gt;
+   * 
+   * @see #blockingBinaryEncoder(OutputStream, BinaryEncoder)
+   */
+  public EncoderFactory configureBlockSize(int size) {
+<span class="nc bnc" id="L120" title="All 2 branches missed.">    if (size &lt; MIN_BLOCK_BUFFER_SIZE)</span>
+<span class="nc" id="L121">      size = MIN_BLOCK_BUFFER_SIZE;</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">    if (size &gt; MAX_BLOCK_BUFFER_SIZE)</span>
+<span class="nc" id="L123">      size = MAX_BLOCK_BUFFER_SIZE;</span>
+<span class="nc" id="L124">    this.binaryBlockSize = size;</span>
+<span class="nc" id="L125">    return this;</span>
+  }
+
+  /**
+   * Returns this factory's configured default block buffer size.
+   * {@link BinaryEncoder} instances created with
+   * #blockingBinaryEncoder(OutputStream, BinaryEncoder) will have block buffers
+   * of this size.
+   * &lt;p/&gt;
+   * 
+   * @see #configureBlockSize(int)
+   * @see #blockingBinaryEncoder(OutputStream, BinaryEncoder)
+   * @return The preferred block size, in bytes.
+   */
+  public int getBlockSize() {
+<span class="nc" id="L140">    return this.binaryBlockSize;</span>
+  }
+
+  /**
+   * Creates or reinitializes a {@link BinaryEncoder} with the OutputStream
+   * provided as the destination for written data. If &lt;i&gt;reuse&lt;/i&gt; is provided, an
+   * attempt will be made to reconfigure &lt;i&gt;reuse&lt;/i&gt; rather than construct a new
+   * instance, but this is not guaranteed, a new instance may be returned.
+   * &lt;p/&gt;
+   * The {@link BinaryEncoder} implementation returned may buffer its output. Data
+   * may not appear on the underlying OutputStream until {@link Encoder#flush()}
+   * is called. The buffer size is configured with
+   * {@link #configureBufferSize(int)}.
+   * &lt;/p&gt;
+   * If buffering is not desired, and lower performance is acceptable, use
+   * {@link #directBinaryEncoder(OutputStream, BinaryEncoder)}
+   * &lt;p/&gt;
+   * {@link BinaryEncoder} instances returned by this method are not thread-safe
+   *
+   * @param out   The OutputStream to write to. Cannot be null.
+   * @param reuse The BinaryEncoder to &lt;i&gt;attempt&lt;/i&gt; to reuse given the factory
+   *              configuration. A BinaryEncoder implementation may not be
+   *              compatible with reuse, causing a new instance to be returned. If
+   *              null, a new instance is returned.
+   * @return A BinaryEncoder that uses &lt;i&gt;out&lt;/i&gt; as its data output. If
+   *         &lt;i&gt;reuse&lt;/i&gt; is null, this will be a new instance. If &lt;i&gt;reuse&lt;/i&gt; is
+   *         not null, then the returned instance may be a new instance or
+   *         &lt;i&gt;reuse&lt;/i&gt; reconfigured to use &lt;i&gt;out&lt;/i&gt;.
+   * @throws IOException
+   * @see BufferedBinaryEncoder
+   * @see Encoder
+   */
+  public BinaryEncoder binaryEncoder(OutputStream out, BinaryEncoder reuse) {
+<span class="nc bnc" id="L173" title="All 4 branches missed.">    if (null == reuse || !reuse.getClass().equals(BufferedBinaryEncoder.class)) {</span>
+<span class="nc" id="L174">      return new BufferedBinaryEncoder(out, this.binaryBufferSize);</span>
+    } else {
+<span class="nc" id="L176">      return ((BufferedBinaryEncoder) reuse).configure(out, this.binaryBufferSize);</span>
+    }
+  }
+
+  /**
+   * Creates or reinitializes a {@link BinaryEncoder} with the OutputStream
+   * provided as the destination for written data. If &lt;i&gt;reuse&lt;/i&gt; is provided, an
+   * attempt will be made to reconfigure &lt;i&gt;reuse&lt;/i&gt; rather than construct a new
+   * instance, but this is not guaranteed, a new instance may be returned.
+   * &lt;p/&gt;
+   * The {@link BinaryEncoder} implementation returned does not buffer its output,
+   * calling {@link Encoder#flush()} will simply cause the wrapped OutputStream to
+   * be flushed.
+   * &lt;p/&gt;
+   * Performance of unbuffered writes can be significantly slower than buffered
+   * writes. {@link #binaryEncoder(OutputStream, BinaryEncoder)} returns
+   * BinaryEncoder instances that are tuned for performance but may buffer output.
+   * The unbuffered, 'direct' encoder may be desired when buffering semantics are
+   * problematic, or if the lifetime of the encoder is so short that the buffer
+   * would not be useful.
+   * &lt;p/&gt;
+   * {@link BinaryEncoder} instances returned by this method are not thread-safe.
+   *
+   * @param out   The OutputStream to initialize to. Cannot be null.
+   * @param reuse The BinaryEncoder to &lt;i&gt;attempt&lt;/i&gt; to reuse given the factory
+   *              configuration. A BinaryEncoder implementation may not be
+   *              compatible with reuse, causing a new instance to be returned. If
+   *              null, a new instance is returned.
+   * @return A BinaryEncoder that uses &lt;i&gt;out&lt;/i&gt; as its data output. If
+   *         &lt;i&gt;reuse&lt;/i&gt; is null, this will be a new instance. If &lt;i&gt;reuse&lt;/i&gt; is
+   *         not null, then the returned instance may be a new instance or
+   *         &lt;i&gt;reuse&lt;/i&gt; reconfigured to use &lt;i&gt;out&lt;/i&gt;.
+   * @see DirectBinaryEncoder
+   * @see Encoder
+   */
+  public BinaryEncoder directBinaryEncoder(OutputStream out, BinaryEncoder reuse) {
+<span class="nc bnc" id="L212" title="All 4 branches missed.">    if (null == reuse || !reuse.getClass().equals(DirectBinaryEncoder.class)) {</span>
+<span class="nc" id="L213">      return new DirectBinaryEncoder(out);</span>
+    } else {
+<span class="nc" id="L215">      return ((DirectBinaryEncoder) reuse).configure(out);</span>
+    }
+  }
+
+  /**
+   * Creates or reinitializes a {@link BinaryEncoder} with the OutputStream
+   * provided as the destination for written data. If &lt;i&gt;reuse&lt;/i&gt; is provided, an
+   * attempt will be made to reconfigure &lt;i&gt;reuse&lt;/i&gt; rather than construct a new
+   * instance, but this is not guaranteed, a new instance may be returned.
+   * &lt;p/&gt;
+   * The {@link BinaryEncoder} implementation returned buffers its output, calling
+   * {@link Encoder#flush()} is required for output to appear on the underlying
+   * OutputStream.
+   * &lt;p/&gt;
+   * The returned BinaryEncoder implements the Avro binary encoding using blocks
+   * delimited with byte sizes for Arrays and Maps. This allows for some decoders
+   * to skip over large Arrays or Maps without decoding the contents, but adds
+   * some overhead. The default block size is configured with
+   * {@link #configureBlockSize(int)}
+   * &lt;p/&gt;
+   * {@link BinaryEncoder} instances returned by this method are not thread-safe.
+   *
+   * @param out   The OutputStream to initialize to. Cannot be null.
+   * @param reuse The BinaryEncoder to &lt;i&gt;attempt&lt;/i&gt; to reuse given the factory
+   *              configuration. A BinaryEncoder implementation may not be
+   *              compatible with reuse, causing a new instance to be returned. If
+   *              null, a new instance is returned.
+   * @return A BinaryEncoder that uses &lt;i&gt;out&lt;/i&gt; as its data output. If
+   *         &lt;i&gt;reuse&lt;/i&gt; is null, this will be a new instance. If &lt;i&gt;reuse&lt;/i&gt; is
+   *         not null, then the returned instance may be a new instance or
+   *         &lt;i&gt;reuse&lt;/i&gt; reconfigured to use &lt;i&gt;out&lt;/i&gt;.
+   * @throws IOException
+   * @see BlockingBinaryEncoder
+   * @see Encoder
+   */
+  public BinaryEncoder blockingBinaryEncoder(OutputStream out, BinaryEncoder reuse) {
+<span class="nc" id="L251">    int blockSize = this.binaryBlockSize;</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">    int bufferSize = (blockSize * 2 &gt;= this.binaryBufferSize) ? 32 : this.binaryBufferSize;</span>
+<span class="nc bnc" id="L253" title="All 4 branches missed.">    if (null == reuse || !reuse.getClass().equals(BlockingBinaryEncoder.class)) {</span>
+<span class="nc" id="L254">      return new BlockingBinaryEncoder(out, blockSize, bufferSize);</span>
+    } else {
+<span class="nc" id="L256">      return ((BlockingBinaryEncoder) reuse).configure(out, blockSize, bufferSize);</span>
+    }
+  }
+
+  /**
+   * Creates a {@link JsonEncoder} using the OutputStream provided for writing
+   * data conforming to the Schema provided.
+   * &lt;p/&gt;
+   * {@link JsonEncoder} buffers its output. Data may not appear on the underlying
+   * OutputStream until {@link Encoder#flush()} is called.
+   * &lt;p/&gt;
+   * {@link JsonEncoder} is not thread-safe.
+   *
+   * @param schema The Schema for data written to this JsonEncoder. Cannot be
+   *               null.
+   * @param out    The OutputStream to write to. Cannot be null.
+   * @return A JsonEncoder configured with &lt;i&gt;out&lt;/i&gt; and &lt;i&gt;schema&lt;/i&gt;
+   * @throws IOException
+   */
+  public JsonEncoder jsonEncoder(Schema schema, OutputStream out) throws IOException {
+<span class="nc" id="L276">    return new JsonEncoder(schema, out);</span>
+  }
+
+  /**
+   * Creates a {@link JsonEncoder} using the OutputStream provided for writing
+   * data conforming to the Schema provided with optional pretty printing.
+   * &lt;p/&gt;
+   * {@link JsonEncoder} buffers its output. Data may not appear on the underlying
+   * OutputStream until {@link Encoder#flush()} is called.
+   * &lt;p/&gt;
+   * {@link JsonEncoder} is not thread-safe.
+   *
+   * @param schema The Schema for data written to this JsonEncoder. Cannot be
+   *               null.
+   * @param out    The OutputStream to write to. Cannot be null.
+   * @param pretty Pretty print encoding.
+   * @return A JsonEncoder configured with &lt;i&gt;out&lt;/i&gt;, &lt;i&gt;schema&lt;/i&gt; and
+   *         &lt;i&gt;pretty&lt;/i&gt;
+   * @throws IOException
+   */
+  public JsonEncoder jsonEncoder(Schema schema, OutputStream out, boolean pretty) throws IOException {
+<span class="nc" id="L297">    return new JsonEncoder(schema, out, pretty);</span>
+  }
+
+  /**
+   * Creates a {@link JsonEncoder} using the {@link JsonGenerator} provided for
+   * output of data conforming to the Schema provided.
+   * &lt;p/&gt;
+   * {@link JsonEncoder} buffers its output. Data may not appear on the underlying
+   * output until {@link Encoder#flush()} is called.
+   * &lt;p/&gt;
+   * {@link JsonEncoder} is not thread-safe.
+   *
+   * @param schema The Schema for data written to this JsonEncoder. Cannot be
+   *               null.
+   * @param gen    The JsonGenerator to write with. Cannot be null.
+   * @return A JsonEncoder configured with &lt;i&gt;gen&lt;/i&gt; and &lt;i&gt;schema&lt;/i&gt;
+   * @throws IOException
+   */
+  JsonEncoder jsonEncoder(Schema schema, JsonGenerator gen) throws IOException {
+<span class="nc" id="L316">    return new JsonEncoder(schema, gen);</span>
+  }
+
+  /**
+   * Creates a {@link ValidatingEncoder} that wraps the Encoder provided. This
+   * ValidatingEncoder will ensure that operations against it conform to the
+   * schema provided.
+   * &lt;p/&gt;
+   * Many {@link Encoder}s buffer their output. Data may not appear on the
+   * underlying output until {@link Encoder#flush()} is called.
+   * &lt;p/&gt;
+   * {@link ValidatingEncoder} is not thread-safe.
+   *
+   * @param schema  The Schema to validate operations against. Cannot be null.
+   * @param encoder The Encoder to wrap. Cannot be be null.
+   * @return A ValidatingEncoder configured to wrap &lt;i&gt;encoder&lt;/i&gt; and validate
+   *         against &lt;i&gt;schema&lt;/i&gt;
+   * @throws IOException
+   */
+  public ValidatingEncoder validatingEncoder(Schema schema, Encoder encoder) throws IOException {
+<span class="nc" id="L336">    return new ValidatingEncoder(schema, encoder);</span>
+  }
+
+  // default encoder is not mutable
+  private static class DefaultEncoderFactory extends EncoderFactory {
+    @Override
+    public EncoderFactory configureBlockSize(int size) {
+<span class="nc" id="L343">      throw new AvroRuntimeException(&quot;Default EncoderFactory cannot be configured&quot;);</span>
+    }
+
+    @Override
+    public EncoderFactory configureBufferSize(int size) {
+<span class="nc" id="L348">      throw new AvroRuntimeException(&quot;Default EncoderFactory cannot be configured&quot;);</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

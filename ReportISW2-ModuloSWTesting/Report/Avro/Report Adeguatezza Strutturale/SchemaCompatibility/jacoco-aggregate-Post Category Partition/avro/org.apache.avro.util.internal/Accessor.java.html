@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Accessor.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.util.internal</a> &gt; <span class="el_source">Accessor.java</span></div><h1>Accessor.java</h1><pre class="source lang-java linenums">/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.util.internal;
+
+import java.io.IOException;
+
+import org.apache.avro.JsonProperties;
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.Schema.Field.Order;
+import org.apache.avro.io.Encoder;
+import org.apache.avro.io.EncoderFactory;
+import org.apache.avro.io.JsonEncoder;
+import org.apache.avro.io.parsing.ResolvingGrammarGenerator;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonNode;
+
+<span class="nc" id="L33">public class Accessor {</span>
+<span class="fc" id="L34">  public abstract static class JsonPropertiesAccessor {</span>
+    protected abstract void addProp(JsonProperties props, String name, JsonNode value);
+  }
+
+<span class="fc" id="L38">  public abstract static class FieldAccessor {</span>
+    protected abstract JsonNode defaultValue(Field field);
+
+    protected abstract Field createField(String name, Schema schema, String doc, JsonNode defaultValue,
+        boolean validate, Order order);
+
+    protected abstract Field createField(String name, Schema schema, String doc, JsonNode defaultValue);
+  }
+
+<span class="nc" id="L47">  public abstract static class ResolvingGrammarGeneratorAccessor {</span>
+    protected abstract void encode(Encoder e, Schema s, JsonNode n) throws IOException;
+  }
+
+<span class="nc" id="L51">  public abstract static class EncoderFactoryAccessor {</span>
+    protected abstract JsonEncoder jsonEncoder(EncoderFactory factory, Schema schema, JsonGenerator gen)
+        throws IOException;
+  }
+
+  private static volatile JsonPropertiesAccessor jsonPropertiesAccessor;
+
+  private static volatile FieldAccessor fieldAccessor;
+
+  private static volatile ResolvingGrammarGeneratorAccessor resolvingGrammarGeneratorAccessor;
+
+  public static void setAccessor(JsonPropertiesAccessor accessor) {
+<span class="pc bpc" id="L63" title="1 of 2 branches missed.">    if (jsonPropertiesAccessor != null)</span>
+<span class="nc" id="L64">      throw new IllegalStateException(&quot;JsonPropertiesAccessor already initialized&quot;);</span>
+<span class="fc" id="L65">    jsonPropertiesAccessor = accessor;</span>
+<span class="fc" id="L66">  }</span>
+
+  public static void setAccessor(FieldAccessor accessor) {
+<span class="pc bpc" id="L69" title="1 of 2 branches missed.">    if (fieldAccessor != null)</span>
+<span class="nc" id="L70">      throw new IllegalStateException(&quot;FieldAccessor already initialized&quot;);</span>
+<span class="fc" id="L71">    fieldAccessor = accessor;</span>
+<span class="fc" id="L72">  }</span>
+
+  private static FieldAccessor fieldAccessor() {
+<span class="nc bnc" id="L75" title="All 2 branches missed.">    if (fieldAccessor == null)</span>
+<span class="nc" id="L76">      ensureLoaded(Field.class);</span>
+<span class="nc" id="L77">    return fieldAccessor;</span>
+  }
+
+  public static void setAccessor(ResolvingGrammarGeneratorAccessor accessor) {
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    if (resolvingGrammarGeneratorAccessor != null)</span>
+<span class="nc" id="L82">      throw new IllegalStateException(&quot;ResolvingGrammarGeneratorAccessor already initialized&quot;);</span>
+<span class="nc" id="L83">    resolvingGrammarGeneratorAccessor = accessor;</span>
+<span class="nc" id="L84">  }</span>
+
+  private static ResolvingGrammarGeneratorAccessor resolvingGrammarGeneratorAccessor() {
+<span class="nc bnc" id="L87" title="All 2 branches missed.">    if (resolvingGrammarGeneratorAccessor == null)</span>
+<span class="nc" id="L88">      ensureLoaded(ResolvingGrammarGenerator.class);</span>
+<span class="nc" id="L89">    return resolvingGrammarGeneratorAccessor;</span>
+  }
+
+  private static void ensureLoaded(Class&lt;?&gt; c) {
+    try {
+<span class="nc" id="L94">      Class.forName(c.getName());</span>
+<span class="nc" id="L95">    } catch (ClassNotFoundException e) {</span>
+      // Shall never happen as the class is specified by its Class instance
+<span class="nc" id="L97">    }</span>
+<span class="nc" id="L98">  }</span>
+
+  public static void addProp(JsonProperties props, String name, JsonNode value) {
+<span class="nc" id="L101">    jsonPropertiesAccessor.addProp(props, name, value);</span>
+<span class="nc" id="L102">  }</span>
+
+  public static JsonNode defaultValue(Field field) {
+<span class="nc" id="L105">    return fieldAccessor.defaultValue(field);</span>
+  }
+
+  public static void encode(Encoder e, Schema s, JsonNode n) throws IOException {
+<span class="nc" id="L109">    resolvingGrammarGeneratorAccessor().encode(e, s, n);</span>
+<span class="nc" id="L110">  }</span>
+
+  public static Field createField(String name, Schema schema, String doc, JsonNode defaultValue, boolean validate,
+      Order order) {
+<span class="nc" id="L114">    return fieldAccessor().createField(name, schema, doc, defaultValue, validate, order);</span>
+  }
+
+  public static Field createField(String name, Schema schema, String doc, JsonNode defaultValue) {
+<span class="nc" id="L118">    return fieldAccessor().createField(name, schema, doc, defaultValue);</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

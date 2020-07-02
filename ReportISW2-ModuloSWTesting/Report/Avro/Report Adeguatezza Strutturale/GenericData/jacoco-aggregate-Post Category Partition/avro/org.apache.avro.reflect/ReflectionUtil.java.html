@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ReflectionUtil.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.reflect</a> &gt; <span class="el_source">ReflectionUtil.java</span></div><h1>ReflectionUtil.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.reflect;
+
+import org.apache.avro.AvroRuntimeException;
+
+import java.lang.invoke.CallSite;
+import java.lang.invoke.LambdaMetafactory;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+/**
+ * A few utility methods for using @link{java.misc.Unsafe}, mostly for private
+ * use.
+ *
+ * Use of Unsafe on Android is forbidden, as Android provides only a very
+ * limited functionality for this class compared to the JDK version.
+ *
+ * InterfaceAudience.Private
+ */
+public class ReflectionUtil {
+
+  private ReflectionUtil() {
+  }
+
+  private static FieldAccess fieldAccess;
+  static {
+<span class="nc" id="L51">    resetFieldAccess();</span>
+<span class="nc" id="L52">  }</span>
+
+  static void resetFieldAccess() {
+    // load only one implementation of FieldAccess
+    // so it is monomorphic and the JIT can inline
+<span class="nc" id="L57">    FieldAccess access = null;</span>
+    try {
+<span class="nc bnc" id="L59" title="All 2 branches missed.">      if (null == System.getProperty(&quot;avro.disable.unsafe&quot;)) {</span>
+<span class="nc" id="L60">        FieldAccess unsafeAccess = load(&quot;org.apache.avro.reflect.FieldAccessUnsafe&quot;, FieldAccess.class);</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">        if (validate(unsafeAccess)) {</span>
+<span class="nc" id="L62">          access = unsafeAccess;</span>
+        }
+      }
+<span class="nc" id="L65">    } catch (Throwable ignored) {</span>
+<span class="nc" id="L66">    }</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">    if (access == null) {</span>
+      try {
+<span class="nc" id="L69">        FieldAccess reflectAccess = load(&quot;org.apache.avro.reflect.FieldAccessReflect&quot;, FieldAccess.class);</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        if (validate(reflectAccess)) {</span>
+<span class="nc" id="L71">          access = reflectAccess;</span>
+        }
+<span class="nc" id="L73">      } catch (Throwable oops) {</span>
+<span class="nc" id="L74">        throw new AvroRuntimeException(&quot;Unable to load a functional FieldAccess class!&quot;);</span>
+<span class="nc" id="L75">      }</span>
+    }
+<span class="nc" id="L77">    fieldAccess = access;</span>
+<span class="nc" id="L78">  }</span>
+
+  private static &lt;T&gt; T load(String name, Class&lt;T&gt; type) throws Exception {
+<span class="nc" id="L81">    return ReflectionUtil.class.getClassLoader().loadClass(name).asSubclass(type).getDeclaredConstructor()</span>
+<span class="nc" id="L82">        .newInstance();</span>
+  }
+
+  public static FieldAccess getFieldAccess() {
+<span class="nc" id="L86">    return fieldAccess;</span>
+  }
+
+  private static boolean validate(FieldAccess access) throws Exception {
+<span class="nc" id="L90">    return new AccessorTestClass().validate(access);</span>
+  }
+
+<span class="nc" id="L93">  private static final class AccessorTestClass {</span>
+<span class="nc" id="L94">    private boolean b = true;</span>
+<span class="nc" id="L95">    protected byte by = 0xf;</span>
+<span class="nc" id="L96">    public char c = 'c';</span>
+<span class="nc" id="L97">    short s = 123;</span>
+<span class="nc" id="L98">    int i = 999;</span>
+<span class="nc" id="L99">    long l = 12345L;</span>
+<span class="nc" id="L100">    float f = 2.2f;</span>
+<span class="nc" id="L101">    double d = 4.4d;</span>
+<span class="nc" id="L102">    Object o = &quot;foo&quot;;</span>
+<span class="nc" id="L103">    Integer i2 = 555;</span>
+
+    private boolean validate(FieldAccess access) throws Exception {
+<span class="nc" id="L106">      boolean valid = true;</span>
+<span class="nc" id="L107">      valid &amp;= validField(access, &quot;b&quot;, b, false);</span>
+<span class="nc" id="L108">      valid &amp;= validField(access, &quot;by&quot;, by, (byte) 0xaf);</span>
+<span class="nc" id="L109">      valid &amp;= validField(access, &quot;c&quot;, c, 'C');</span>
+<span class="nc" id="L110">      valid &amp;= validField(access, &quot;s&quot;, s, (short) 321);</span>
+<span class="nc" id="L111">      valid &amp;= validField(access, &quot;i&quot;, i, 111);</span>
+<span class="nc" id="L112">      valid &amp;= validField(access, &quot;l&quot;, l, 54321L);</span>
+<span class="nc" id="L113">      valid &amp;= validField(access, &quot;f&quot;, f, 0.2f);</span>
+<span class="nc" id="L114">      valid &amp;= validField(access, &quot;d&quot;, d, 0.4d);</span>
+<span class="nc" id="L115">      valid &amp;= validField(access, &quot;o&quot;, o, new Object());</span>
+<span class="nc" id="L116">      valid &amp;= validField(access, &quot;i2&quot;, i2, -555);</span>
+<span class="nc" id="L117">      return valid;</span>
+    }
+
+    private boolean validField(FieldAccess access, String name, Object original, Object toSet) throws Exception {
+      FieldAccessor a;
+<span class="nc" id="L122">      boolean valid = true;</span>
+<span class="nc" id="L123">      a = accessor(access, name);</span>
+<span class="nc" id="L124">      valid &amp;= original.equals(a.get(this));</span>
+<span class="nc" id="L125">      a.set(this, toSet);</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">      valid &amp;= !original.equals(a.get(this));</span>
+<span class="nc" id="L127">      return valid;</span>
+    }
+
+    private FieldAccessor accessor(FieldAccess access, String name) throws Exception {
+<span class="nc" id="L131">      return access.getAccessor(this.getClass().getDeclaredField(name));</span>
+    }
+  }
+
+  /**
+   * For an interface, get a map of any {@link TypeVariable}s to their actual
+   * types.
+   *
+   * @param iface interface to resolve types for.
+   * @return a map of {@link TypeVariable}s to actual types.
+   */
+  protected static Map&lt;TypeVariable&lt;?&gt;, Type&gt; resolveTypeVariables(Class&lt;?&gt; iface) {
+<span class="nc" id="L143">    return resolveTypeVariables(iface, new IdentityHashMap&lt;&gt;());</span>
+  }
+
+  private static Map&lt;TypeVariable&lt;?&gt;, Type&gt; resolveTypeVariables(Class&lt;?&gt; iface, Map&lt;TypeVariable&lt;?&gt;, Type&gt; reuse) {
+
+<span class="nc bnc" id="L148" title="All 2 branches missed.">    for (Type type : iface.getGenericInterfaces()) {</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">      if (type instanceof ParameterizedType) {</span>
+<span class="nc" id="L150">        ParameterizedType parameterizedType = (ParameterizedType) type;</span>
+<span class="nc" id="L151">        Type rawType = parameterizedType.getRawType();</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        if (rawType instanceof Class&lt;?&gt;) {</span>
+<span class="nc" id="L153">          Class&lt;?&gt; classType = (Class&lt;?&gt;) rawType;</span>
+<span class="nc" id="L154">          TypeVariable&lt;? extends Class&lt;?&gt;&gt;[] typeParameters = classType.getTypeParameters();</span>
+<span class="nc" id="L155">          Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">          for (int i = 0; i &lt; typeParameters.length; i++) {</span>
+<span class="nc" id="L157">            reuse.putIfAbsent(typeParameters[i], reuse.getOrDefault(actualTypeArguments[i], actualTypeArguments[i]));</span>
+          }
+<span class="nc" id="L159">          resolveTypeVariables(classType, reuse);</span>
+        }
+      }
+    }
+<span class="nc" id="L163">    return reuse;</span>
+  }
+
+  private static &lt;D&gt; Supplier&lt;D&gt; getConstructorAsSupplier(Class&lt;D&gt; clazz) {
+    try {
+<span class="nc" id="L168">      MethodHandles.Lookup lookup = MethodHandles.lookup();</span>
+<span class="nc" id="L169">      MethodHandle constructorHandle = lookup.findConstructor(clazz, MethodType.methodType(void.class));</span>
+
+<span class="nc" id="L171">      CallSite site = LambdaMetafactory.metafactory(lookup, &quot;get&quot;, MethodType.methodType(Supplier.class),</span>
+<span class="nc" id="L172">          constructorHandle.type().generic(), constructorHandle, constructorHandle.type());</span>
+
+<span class="nc" id="L174">      return (Supplier&lt;D&gt;) site.getTarget().invokeExact();</span>
+<span class="nc" id="L175">    } catch (Throwable t) {</span>
+      // if anything goes wrong, don't provide a Supplier
+<span class="nc" id="L177">      return null;</span>
+    }
+  }
+
+  private static &lt;V, R&gt; Supplier&lt;R&gt; getOneArgConstructorAsSupplier(Class&lt;R&gt; clazz, Class&lt;V&gt; argumentClass, V argument) {
+<span class="nc" id="L182">    Function&lt;V, R&gt; supplierFunction = getConstructorAsFunction(argumentClass, clazz);</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">    if (supplierFunction != null) {</span>
+<span class="nc" id="L184">      return () -&gt; supplierFunction.apply(argument);</span>
+    } else {
+<span class="nc" id="L186">      return null;</span>
+    }
+  }
+
+  public static &lt;V, R&gt; Function&lt;V, R&gt; getConstructorAsFunction(Class&lt;V&gt; parameterClass, Class&lt;R&gt; clazz) {
+    try {
+<span class="nc" id="L192">      MethodHandles.Lookup lookup = MethodHandles.lookup();</span>
+<span class="nc" id="L193">      MethodHandle constructorHandle = lookup.findConstructor(clazz, MethodType.methodType(void.class, parameterClass));</span>
+
+<span class="nc" id="L195">      CallSite site = LambdaMetafactory.metafactory(lookup, &quot;apply&quot;, MethodType.methodType(Function.class),</span>
+<span class="nc" id="L196">          constructorHandle.type().generic(), constructorHandle, constructorHandle.type());</span>
+
+<span class="nc" id="L198">      return (Function&lt;V, R&gt;) site.getTarget().invokeExact();</span>
+<span class="nc" id="L199">    } catch (Throwable t) {</span>
+      // if something goes wrong, do not provide a Function instance
+<span class="nc" id="L201">      return null;</span>
+    }
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

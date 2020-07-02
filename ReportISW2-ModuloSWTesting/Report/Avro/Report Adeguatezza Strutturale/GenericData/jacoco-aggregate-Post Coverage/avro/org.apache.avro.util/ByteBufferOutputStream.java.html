@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ByteBufferOutputStream.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.util</a> &gt; <span class="el_source">ByteBufferOutputStream.java</span></div><h1>ByteBufferOutputStream.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.avro.util;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Utility to collect data written to an {@link OutputStream} in
+ * {@link ByteBuffer}s.
+ */
+public class ByteBufferOutputStream extends OutputStream {
+  public static final int BUFFER_SIZE = 8192;
+
+  private List&lt;ByteBuffer&gt; buffers;
+
+<span class="nc" id="L37">  public ByteBufferOutputStream() {</span>
+<span class="nc" id="L38">    reset();</span>
+<span class="nc" id="L39">  }</span>
+
+  /** Returns all data written and resets the stream to be empty. */
+  public List&lt;ByteBuffer&gt; getBufferList() {
+<span class="nc" id="L43">    List&lt;ByteBuffer&gt; result = buffers;</span>
+<span class="nc" id="L44">    reset();</span>
+<span class="nc bnc" id="L45" title="All 2 branches missed.">    for (ByteBuffer buffer : result)</span>
+<span class="nc" id="L46">      buffer.flip();</span>
+<span class="nc" id="L47">    return result;</span>
+  }
+
+  /** Prepend a list of ByteBuffers to this stream. */
+  public void prepend(List&lt;ByteBuffer&gt; lists) {
+<span class="nc bnc" id="L52" title="All 2 branches missed.">    for (ByteBuffer buffer : lists) {</span>
+<span class="nc" id="L53">      buffer.position(buffer.limit());</span>
+<span class="nc" id="L54">    }</span>
+<span class="nc" id="L55">    buffers.addAll(0, lists);</span>
+<span class="nc" id="L56">  }</span>
+
+  /** Append a list of ByteBuffers to this stream. */
+  public void append(List&lt;ByteBuffer&gt; lists) {
+<span class="nc bnc" id="L60" title="All 2 branches missed.">    for (ByteBuffer buffer : lists) {</span>
+<span class="nc" id="L61">      buffer.position(buffer.limit());</span>
+<span class="nc" id="L62">    }</span>
+<span class="nc" id="L63">    buffers.addAll(lists);</span>
+<span class="nc" id="L64">  }</span>
+
+  public void reset() {
+<span class="nc" id="L67">    buffers = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L68">    buffers.add(ByteBuffer.allocate(BUFFER_SIZE));</span>
+<span class="nc" id="L69">  }</span>
+
+  public void write(ByteBuffer buffer) {
+<span class="nc" id="L72">    buffers.add(buffer);</span>
+<span class="nc" id="L73">  }</span>
+
+  @Override
+  public void write(int b) {
+<span class="nc" id="L77">    ByteBuffer buffer = buffers.get(buffers.size() - 1);</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">    if (buffer.remaining() &lt; 1) {</span>
+<span class="nc" id="L79">      buffer = ByteBuffer.allocate(BUFFER_SIZE);</span>
+<span class="nc" id="L80">      buffers.add(buffer);</span>
+    }
+<span class="nc" id="L82">    buffer.put((byte) b);</span>
+<span class="nc" id="L83">  }</span>
+
+  @Override
+  public void write(byte[] b, int off, int len) {
+<span class="nc" id="L87">    ByteBuffer buffer = buffers.get(buffers.size() - 1);</span>
+<span class="nc" id="L88">    int remaining = buffer.remaining();</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">    while (len &gt; remaining) {</span>
+<span class="nc" id="L90">      buffer.put(b, off, remaining);</span>
+<span class="nc" id="L91">      len -= remaining;</span>
+<span class="nc" id="L92">      off += remaining;</span>
+<span class="nc" id="L93">      buffer = ByteBuffer.allocate(BUFFER_SIZE);</span>
+<span class="nc" id="L94">      buffers.add(buffer);</span>
+<span class="nc" id="L95">      remaining = buffer.remaining();</span>
+    }
+<span class="nc" id="L97">    buffer.put(b, off, len);</span>
+<span class="nc" id="L98">  }</span>
+
+  /** Add a buffer to the output without copying, if possible. */
+  public void writeBuffer(ByteBuffer buffer) throws IOException {
+<span class="nc bnc" id="L102" title="All 2 branches missed.">    if (buffer.remaining() &lt; BUFFER_SIZE) {</span>
+<span class="nc" id="L103">      write(buffer.array(), buffer.position(), buffer.remaining());</span>
+    } else { // append w/o copying bytes
+<span class="nc" id="L105">      ByteBuffer dup = buffer.duplicate();</span>
+<span class="nc" id="L106">      dup.position(buffer.limit()); // ready for flip</span>
+<span class="nc" id="L107">      buffers.add(dup);</span>
+    }
+<span class="nc" id="L109">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

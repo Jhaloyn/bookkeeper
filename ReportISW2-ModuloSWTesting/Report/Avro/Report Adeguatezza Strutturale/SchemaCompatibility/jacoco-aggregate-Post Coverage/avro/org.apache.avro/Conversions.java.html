@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Conversions.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro</a> &gt; <span class="el_source">Conversions.java</span></div><h1>Conversions.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.avro;
+
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Map;
+import java.util.UUID;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericEnumSymbol;
+import org.apache.avro.generic.GenericFixed;
+import org.apache.avro.generic.IndexedRecord;
+
+<span class="nc" id="L33">public class Conversions {</span>
+
+<span class="nc" id="L35">  public static class UUIDConversion extends Conversion&lt;UUID&gt; {</span>
+    @Override
+    public Class&lt;UUID&gt; getConvertedType() {
+<span class="nc" id="L38">      return UUID.class;</span>
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L43">      return LogicalTypes.uuid().addToSchema(Schema.create(Schema.Type.STRING));</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L48">      return &quot;uuid&quot;;</span>
+    }
+
+    @Override
+    public UUID fromCharSequence(CharSequence value, Schema schema, LogicalType type) {
+<span class="nc" id="L53">      return UUID.fromString(value.toString());</span>
+    }
+
+    @Override
+    public CharSequence toCharSequence(UUID value, Schema schema, LogicalType type) {
+<span class="nc" id="L58">      return value.toString();</span>
+    }
+  }
+
+<span class="nc" id="L62">  public static class DecimalConversion extends Conversion&lt;BigDecimal&gt; {</span>
+    @Override
+    public Class&lt;BigDecimal&gt; getConvertedType() {
+<span class="nc" id="L65">      return BigDecimal.class;</span>
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L70">      throw new UnsupportedOperationException(&quot;No recommended schema for decimal (scale is required)&quot;);</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L75">      return &quot;decimal&quot;;</span>
+    }
+
+    @Override
+    public BigDecimal fromBytes(ByteBuffer value, Schema schema, LogicalType type) {
+<span class="nc" id="L80">      int scale = ((LogicalTypes.Decimal) type).getScale();</span>
+      // always copy the bytes out because BigInteger has no offset/length ctor
+<span class="nc" id="L82">      byte[] bytes = new byte[value.remaining()];</span>
+<span class="nc" id="L83">      value.duplicate().get(bytes);</span>
+<span class="nc" id="L84">      return new BigDecimal(new BigInteger(bytes), scale);</span>
+    }
+
+    @Override
+    public ByteBuffer toBytes(BigDecimal value, Schema schema, LogicalType type) {
+<span class="nc" id="L89">      int scale = ((LogicalTypes.Decimal) type).getScale();</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">      if (scale != value.scale()) {</span>
+<span class="nc" id="L91">        throw new AvroTypeException(&quot;Cannot encode decimal with scale &quot; + value.scale() + &quot; as scale &quot; + scale);</span>
+      }
+<span class="nc" id="L93">      return ByteBuffer.wrap(value.unscaledValue().toByteArray());</span>
+    }
+
+    @Override
+    public BigDecimal fromFixed(GenericFixed value, Schema schema, LogicalType type) {
+<span class="nc" id="L98">      int scale = ((LogicalTypes.Decimal) type).getScale();</span>
+<span class="nc" id="L99">      return new BigDecimal(new BigInteger(value.bytes()), scale);</span>
+    }
+
+    @Override
+    public GenericFixed toFixed(BigDecimal value, Schema schema, LogicalType type) {
+<span class="nc" id="L104">      int scale = ((LogicalTypes.Decimal) type).getScale();</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">      if (scale != value.scale()) {</span>
+<span class="nc" id="L106">        throw new AvroTypeException(&quot;Cannot encode decimal with scale &quot; + value.scale() + &quot; as scale &quot; + scale);</span>
+      }
+
+<span class="nc bnc" id="L109" title="All 2 branches missed.">      byte fillByte = (byte) (value.signum() &lt; 0 ? 0xFF : 0x00);</span>
+<span class="nc" id="L110">      byte[] unscaled = value.unscaledValue().toByteArray();</span>
+<span class="nc" id="L111">      byte[] bytes = new byte[schema.getFixedSize()];</span>
+<span class="nc" id="L112">      int offset = bytes.length - unscaled.length;</span>
+
+      // Fill the front of the array and copy remaining with unscaled values
+<span class="nc" id="L115">      Arrays.fill(bytes, 0, offset, fillByte);</span>
+<span class="nc" id="L116">      System.arraycopy(unscaled, 0, bytes, offset, bytes.length - offset);</span>
+
+<span class="nc" id="L118">      return new GenericData.Fixed(schema, bytes);</span>
+    }
+  }
+
+  /**
+   * Convert a underlying representation of a logical type (such as a ByteBuffer)
+   * to a higher level object (such as a BigDecimal).
+   *
+   * @param datum      The object to be converted.
+   * @param schema     The schema of datum. Cannot be null if datum is not null.
+   * @param type       The {@link org.apache.avro.LogicalType} of datum. Cannot be
+   *                   null if datum is not null.
+   * @param conversion The tool used to finish the conversion. Cannot be null if
+   *                   datum is not null.
+   * @return The result object, which is a high level object of the logical type.
+   *         If a null datum is passed in, a null value will be returned.
+   * @throws IllegalArgumentException if a null schema, type or conversion is
+   *                                  passed in while datum is not null.
+   */
+  public static Object convertToLogicalType(Object datum, Schema schema, LogicalType type, Conversion&lt;?&gt; conversion) {
+<span class="nc bnc" id="L138" title="All 2 branches missed.">    if (datum == null) {</span>
+<span class="nc" id="L139">      return null;</span>
+    }
+
+<span class="nc bnc" id="L142" title="All 6 branches missed.">    if (schema == null || type == null || conversion == null) {</span>
+<span class="nc" id="L143">      throw new IllegalArgumentException(&quot;Parameters cannot be null! Parameter values:&quot;</span>
+<span class="nc" id="L144">          + Arrays.deepToString(new Object[] { datum, schema, type, conversion }));</span>
+    }
+
+    try {
+<span class="nc bnc" id="L148" title="All 13 branches missed.">      switch (schema.getType()) {</span>
+      case RECORD:
+<span class="nc" id="L150">        return conversion.fromRecord((IndexedRecord) datum, schema, type);</span>
+      case ENUM:
+<span class="nc" id="L152">        return conversion.fromEnumSymbol((GenericEnumSymbol) datum, schema, type);</span>
+      case ARRAY:
+<span class="nc" id="L154">        return conversion.fromArray((Collection) datum, schema, type);</span>
+      case MAP:
+<span class="nc" id="L156">        return conversion.fromMap((Map&lt;?, ?&gt;) datum, schema, type);</span>
+      case FIXED:
+<span class="nc" id="L158">        return conversion.fromFixed((GenericFixed) datum, schema, type);</span>
+      case STRING:
+<span class="nc" id="L160">        return conversion.fromCharSequence((CharSequence) datum, schema, type);</span>
+      case BYTES:
+<span class="nc" id="L162">        return conversion.fromBytes((ByteBuffer) datum, schema, type);</span>
+      case INT:
+<span class="nc" id="L164">        return conversion.fromInt((Integer) datum, schema, type);</span>
+      case LONG:
+<span class="nc" id="L166">        return conversion.fromLong((Long) datum, schema, type);</span>
+      case FLOAT:
+<span class="nc" id="L168">        return conversion.fromFloat((Float) datum, schema, type);</span>
+      case DOUBLE:
+<span class="nc" id="L170">        return conversion.fromDouble((Double) datum, schema, type);</span>
+      case BOOLEAN:
+<span class="nc" id="L172">        return conversion.fromBoolean((Boolean) datum, schema, type);</span>
+      }
+<span class="nc" id="L174">      return datum;</span>
+<span class="nc" id="L175">    } catch (ClassCastException e) {</span>
+<span class="nc" id="L176">      throw new AvroRuntimeException(</span>
+<span class="nc" id="L177">          &quot;Cannot convert &quot; + datum + &quot;:&quot; + datum.getClass().getSimpleName() + &quot;: expected generic type&quot;, e);</span>
+    }
+  }
+
+  /**
+   * Convert a high level representation of a logical type (such as a BigDecimal)
+   * to the its underlying representation object (such as a ByteBuffer)
+   *
+   * @param datum      The object to be converted.
+   * @param schema     The schema of datum. Cannot be null if datum is not null.
+   * @param type       The {@link org.apache.avro.LogicalType} of datum. Cannot be
+   *                   null if datum is not null.
+   * @param conversion The tool used to finish the conversion. Cannot be null if
+   *                   datum is not null.
+   * @return The result object, which is an underlying representation object of
+   *         the logical type. If the input param datum is null, a null value will
+   *         be returned.
+   * @throws IllegalArgumentException if a null schema, type or conversion is
+   *                                  passed in while datum is not null.
+   */
+  public static &lt;T&gt; Object convertToRawType(Object datum, Schema schema, LogicalType type, Conversion&lt;T&gt; conversion) {
+<span class="nc bnc" id="L198" title="All 2 branches missed.">    if (datum == null) {</span>
+<span class="nc" id="L199">      return null;</span>
+    }
+
+<span class="nc bnc" id="L202" title="All 6 branches missed.">    if (schema == null || type == null || conversion == null) {</span>
+<span class="nc" id="L203">      throw new IllegalArgumentException(&quot;Parameters cannot be null! Parameter values:&quot;</span>
+<span class="nc" id="L204">          + Arrays.deepToString(new Object[] { datum, schema, type, conversion }));</span>
+    }
+
+    try {
+<span class="nc" id="L208">      Class&lt;T&gt; fromClass = conversion.getConvertedType();</span>
+<span class="nc bnc" id="L209" title="All 13 branches missed.">      switch (schema.getType()) {</span>
+      case RECORD:
+<span class="nc" id="L211">        return conversion.toRecord(fromClass.cast(datum), schema, type);</span>
+      case ENUM:
+<span class="nc" id="L213">        return conversion.toEnumSymbol(fromClass.cast(datum), schema, type);</span>
+      case ARRAY:
+<span class="nc" id="L215">        return conversion.toArray(fromClass.cast(datum), schema, type);</span>
+      case MAP:
+<span class="nc" id="L217">        return conversion.toMap(fromClass.cast(datum), schema, type);</span>
+      case FIXED:
+<span class="nc" id="L219">        return conversion.toFixed(fromClass.cast(datum), schema, type);</span>
+      case STRING:
+<span class="nc" id="L221">        return conversion.toCharSequence(fromClass.cast(datum), schema, type);</span>
+      case BYTES:
+<span class="nc" id="L223">        return conversion.toBytes(fromClass.cast(datum), schema, type);</span>
+      case INT:
+<span class="nc" id="L225">        return conversion.toInt(fromClass.cast(datum), schema, type);</span>
+      case LONG:
+<span class="nc" id="L227">        return conversion.toLong(fromClass.cast(datum), schema, type);</span>
+      case FLOAT:
+<span class="nc" id="L229">        return conversion.toFloat(fromClass.cast(datum), schema, type);</span>
+      case DOUBLE:
+<span class="nc" id="L231">        return conversion.toDouble(fromClass.cast(datum), schema, type);</span>
+      case BOOLEAN:
+<span class="nc" id="L233">        return conversion.toBoolean(fromClass.cast(datum), schema, type);</span>
+      }
+<span class="nc" id="L235">      return datum;</span>
+<span class="nc" id="L236">    } catch (ClassCastException e) {</span>
+<span class="nc" id="L237">      throw new AvroRuntimeException(</span>
+<span class="nc" id="L238">          &quot;Cannot convert &quot; + datum + &quot;:&quot; + datum.getClass().getSimpleName() + &quot;: expected logical type&quot;, e);</span>
+    }
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

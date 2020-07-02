@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DirectBinaryEncoder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">DirectBinaryEncoder.java</span></div><h1>DirectBinaryEncoder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.Objects;
+
+/**
+ * An {@link Encoder} for Avro's binary encoding that does not buffer output.
+ * &lt;p/&gt;
+ * This encoder does not buffer writes, and as a result is slower than
+ * {@link BufferedBinaryEncoder}. However, it is lighter-weight and useful when
+ * the buffering in BufferedBinaryEncoder is not desired and/or the Encoder is
+ * very short lived.
+ * &lt;p/&gt;
+ * To construct, use
+ * {@link EncoderFactory#directBinaryEncoder(OutputStream, BinaryEncoder)}
+ * &lt;p/&gt;
+ * DirectBinaryEncoder is not thread-safe
+ * 
+ * @see BinaryEncoder
+ * @see EncoderFactory
+ * @see Encoder
+ * @see Decoder
+ */
+public class DirectBinaryEncoder extends BinaryEncoder {
+  private OutputStream out;
+  // the buffer is used for writing floats, doubles, and large longs.
+<span class="nc" id="L45">  private final byte[] buf = new byte[12];</span>
+
+  /**
+   * Create a writer that sends its output to the underlying stream
+   * &lt;code&gt;out&lt;/code&gt;.
+   **/
+<span class="nc" id="L51">  DirectBinaryEncoder(OutputStream out) {</span>
+<span class="nc" id="L52">    configure(out);</span>
+<span class="nc" id="L53">  }</span>
+
+  DirectBinaryEncoder configure(OutputStream out) {
+<span class="nc" id="L56">    Objects.requireNonNull(out, &quot;OutputStream cannot be null&quot;);</span>
+<span class="nc" id="L57">    this.out = out;</span>
+<span class="nc" id="L58">    return this;</span>
+  }
+
+  @Override
+  public void flush() throws IOException {
+<span class="nc" id="L63">    out.flush();</span>
+<span class="nc" id="L64">  }</span>
+
+  @Override
+  public void writeBoolean(boolean b) throws IOException {
+<span class="nc bnc" id="L68" title="All 2 branches missed.">    out.write(b ? 1 : 0);</span>
+<span class="nc" id="L69">  }</span>
+
+  /*
+   * buffering is slower for ints that encode to just 1 or two bytes, and and
+   * faster for large ones. (Sun JRE 1.6u22, x64 -server)
+   */
+  @Override
+  public void writeInt(int n) throws IOException {
+<span class="nc" id="L77">    int val = (n &lt;&lt; 1) ^ (n &gt;&gt; 31);</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">    if ((val &amp; ~0x7F) == 0) {</span>
+<span class="nc" id="L79">      out.write(val);</span>
+<span class="nc" id="L80">      return;</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    } else if ((val &amp; ~0x3FFF) == 0) {</span>
+<span class="nc" id="L82">      out.write(0x80 | val);</span>
+<span class="nc" id="L83">      out.write(val &gt;&gt;&gt; 7);</span>
+<span class="nc" id="L84">      return;</span>
+    }
+<span class="nc" id="L86">    int len = BinaryData.encodeInt(n, buf, 0);</span>
+<span class="nc" id="L87">    out.write(buf, 0, len);</span>
+<span class="nc" id="L88">  }</span>
+
+  /*
+   * buffering is slower for writeLong when the number is small enough to fit in
+   * an int. (Sun JRE 1.6u22, x64 -server)
+   */
+  @Override
+  public void writeLong(long n) throws IOException {
+<span class="nc" id="L96">    long val = (n &lt;&lt; 1) ^ (n &gt;&gt; 63); // move sign to low-order bit</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">    if ((val &amp; ~0x7FFFFFFFL) == 0) {</span>
+<span class="nc" id="L98">      int i = (int) val;</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">      while ((i &amp; ~0x7F) != 0) {</span>
+<span class="nc" id="L100">        out.write((byte) ((0x80 | i) &amp; 0xFF));</span>
+<span class="nc" id="L101">        i &gt;&gt;&gt;= 7;</span>
+      }
+<span class="nc" id="L103">      out.write((byte) i);</span>
+<span class="nc" id="L104">      return;</span>
+    }
+<span class="nc" id="L106">    int len = BinaryData.encodeLong(n, buf, 0);</span>
+<span class="nc" id="L107">    out.write(buf, 0, len);</span>
+<span class="nc" id="L108">  }</span>
+
+  @Override
+  public void writeFloat(float f) throws IOException {
+<span class="nc" id="L112">    int len = BinaryData.encodeFloat(f, buf, 0);</span>
+<span class="nc" id="L113">    out.write(buf, 0, len);</span>
+<span class="nc" id="L114">  }</span>
+
+  @Override
+  public void writeDouble(double d) throws IOException {
+<span class="nc" id="L118">    int len = BinaryData.encodeDouble(d, buf, 0);</span>
+<span class="nc" id="L119">    out.write(buf, 0, len);</span>
+<span class="nc" id="L120">  }</span>
+
+  @Override
+  public void writeFixed(byte[] bytes, int start, int len) throws IOException {
+<span class="nc" id="L124">    out.write(bytes, start, len);</span>
+<span class="nc" id="L125">  }</span>
+
+  @Override
+  protected void writeZero() throws IOException {
+<span class="nc" id="L129">    out.write(0);</span>
+<span class="nc" id="L130">  }</span>
+
+  @Override
+  public int bytesBuffered() {
+<span class="nc" id="L134">    return 0;</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Parser.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io.parsing</a> &gt; <span class="el_source">Parser.java</span></div><h1>Parser.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io.parsing;
+
+import java.io.IOException;
+import java.util.Arrays;
+
+import org.apache.avro.AvroTypeException;
+
+/**
+ * Parser is the class that maintains the stack for parsing. This class is used
+ * by encoders, which are not required to skip.
+ */
+public class Parser {
+  /**
+   * The parser knows how to handle the terminal and non-terminal symbols. But it
+   * needs help from outside to handle implicit and explicit actions. The clients
+   * implement this interface to provide this help.
+   */
+  public interface ActionHandler {
+    /**
+     * Handle the action symbol &lt;tt&gt;top&lt;/tt&gt; when the &lt;tt&gt;input&lt;/tt&gt; is sought to be
+     * taken off the stack.
+     *
+     * @param input The input symbol from the caller of advance
+     * @param top   The symbol at the top the stack.
+     * @return &lt;tt&gt;null&lt;/tt&gt; if advance() is to continue processing the stack. If
+     *         not &lt;tt&gt;null&lt;/tt&gt; the return value will be returned by advance().
+     * @throws IOException
+     */
+    Symbol doAction(Symbol input, Symbol top) throws IOException;
+  }
+
+  protected final ActionHandler symbolHandler;
+  protected Symbol[] stack;
+  protected int pos;
+
+<span class="nc" id="L53">  public Parser(Symbol root, ActionHandler symbolHandler) {</span>
+<span class="nc" id="L54">    this.symbolHandler = symbolHandler;</span>
+<span class="nc" id="L55">    this.stack = new Symbol[5]; // Start small to make sure expansion code works</span>
+<span class="nc" id="L56">    this.stack[0] = root;</span>
+<span class="nc" id="L57">    this.pos = 1;</span>
+<span class="nc" id="L58">  }</span>
+
+  /**
+   * If there is no sufficient room in the stack, use this expand it.
+   */
+  private void expandStack() {
+<span class="nc" id="L64">    stack = Arrays.copyOf(stack, stack.length + Math.max(stack.length, 1024));</span>
+<span class="nc" id="L65">  }</span>
+
+  /**
+   * Recursively replaces the symbol at the top of the stack with its production,
+   * until the top is a terminal. Then checks if the top symbol matches the
+   * terminal symbol suppled &lt;tt&gt;terminal&lt;/tt&gt;.
+   *
+   * @param input The symbol to match against the terminal at the top of the
+   *              stack.
+   * @return The terminal symbol at the top of the stack unless an implicit action
+   *         resulted in another symbol, in which case that symbol is returned.
+   */
+  public final Symbol advance(Symbol input) throws IOException {
+    for (;;) {
+<span class="nc" id="L79">      Symbol top = stack[--pos];</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">      if (top == input) {</span>
+<span class="nc" id="L81">        return top; // A common case</span>
+      }
+
+<span class="nc" id="L84">      Symbol.Kind k = top.kind;</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">      if (k == Symbol.Kind.IMPLICIT_ACTION) {</span>
+<span class="nc" id="L86">        Symbol result = symbolHandler.doAction(input, top);</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">        if (result != null) {</span>
+<span class="nc" id="L88">          return result;</span>
+        }
+<span class="nc bnc" id="L90" title="All 2 branches missed.">      } else if (k == Symbol.Kind.TERMINAL) {</span>
+<span class="nc" id="L91">        throw new AvroTypeException(&quot;Attempt to process a &quot; + input + &quot; when a &quot; + top + &quot; was expected.&quot;);</span>
+<span class="nc bnc" id="L92" title="All 4 branches missed.">      } else if (k == Symbol.Kind.REPEATER &amp;&amp; input == ((Symbol.Repeater) top).end) {</span>
+<span class="nc" id="L93">        return input;</span>
+      } else {
+<span class="nc" id="L95">        pushProduction(top);</span>
+      }
+<span class="nc" id="L97">    }</span>
+  }
+
+  /**
+   * Performs any implicit actions at the top the stack, expanding any production
+   * (other than the root) that may be encountered. This method will fail if there
+   * are any repeaters on the stack.
+   *
+   * @throws IOException
+   */
+  public final void processImplicitActions() throws IOException {
+<span class="nc bnc" id="L108" title="All 2 branches missed.">    while (pos &gt; 1) {</span>
+<span class="nc" id="L109">      Symbol top = stack[pos - 1];</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">      if (top.kind == Symbol.Kind.IMPLICIT_ACTION) {</span>
+<span class="nc" id="L111">        pos--;</span>
+<span class="nc" id="L112">        symbolHandler.doAction(null, top);</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">      } else if (top.kind != Symbol.Kind.TERMINAL) {</span>
+<span class="nc" id="L114">        pos--;</span>
+<span class="nc" id="L115">        pushProduction(top);</span>
+      } else {
+        break;
+      }
+<span class="nc" id="L119">    }</span>
+<span class="nc" id="L120">  }</span>
+
+  /**
+   * Performs any &quot;trailing&quot; implicit actions at the top the stack.
+   */
+  public final void processTrailingImplicitActions() throws IOException {
+<span class="nc bnc" id="L126" title="All 2 branches missed.">    while (pos &gt;= 1) {</span>
+<span class="nc" id="L127">      Symbol top = stack[pos - 1];</span>
+<span class="nc bnc" id="L128" title="All 4 branches missed.">      if (top.kind == Symbol.Kind.IMPLICIT_ACTION &amp;&amp; ((Symbol.ImplicitAction) top).isTrailing) {</span>
+<span class="nc" id="L129">        pos--;</span>
+<span class="nc" id="L130">        symbolHandler.doAction(null, top);</span>
+      } else {
+        break;
+      }
+<span class="nc" id="L134">    }</span>
+<span class="nc" id="L135">  }</span>
+
+  /**
+   * Pushes the production for the given symbol &lt;tt&gt;sym&lt;/tt&gt;. If &lt;tt&gt;sym&lt;/tt&gt; is a
+   * repeater and &lt;tt&gt;input&lt;/tt&gt; is either {@link Symbol#ARRAY_END} or
+   * {@link Symbol#MAP_END} pushes nothing.
+   *
+   * @param sym
+   */
+  public final void pushProduction(Symbol sym) {
+<span class="nc" id="L145">    Symbol[] p = sym.production;</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">    while (pos + p.length &gt; stack.length) {</span>
+<span class="nc" id="L147">      expandStack();</span>
+    }
+<span class="nc" id="L149">    System.arraycopy(p, 0, stack, pos, p.length);</span>
+<span class="nc" id="L150">    pos += p.length;</span>
+<span class="nc" id="L151">  }</span>
+
+  /**
+   * Pops and returns the top symbol from the stack.
+   */
+  public Symbol popSymbol() {
+<span class="nc" id="L157">    return stack[--pos];</span>
+  }
+
+  /**
+   * Returns the top symbol from the stack.
+   */
+  public Symbol topSymbol() {
+<span class="nc" id="L164">    return stack[pos - 1];</span>
+  }
+
+  /**
+   * Pushes &lt;tt&gt;sym&lt;/tt&gt; on to the stack.
+   */
+  public void pushSymbol(Symbol sym) {
+<span class="nc bnc" id="L171" title="All 2 branches missed.">    if (pos == stack.length) {</span>
+<span class="nc" id="L172">      expandStack();</span>
+    }
+<span class="nc" id="L174">    stack[pos++] = sym;</span>
+<span class="nc" id="L175">  }</span>
+
+  /**
+   * Returns the depth of the stack.
+   */
+  public int depth() {
+<span class="nc" id="L181">    return pos;</span>
+  }
+
+  public void reset() {
+<span class="nc" id="L185">    pos = 1;</span>
+<span class="nc" id="L186">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

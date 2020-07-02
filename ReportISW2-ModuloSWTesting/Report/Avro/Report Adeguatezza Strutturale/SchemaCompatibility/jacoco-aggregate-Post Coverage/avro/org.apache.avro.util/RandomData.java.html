@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>RandomData.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.util</a> &gt; <span class="el_source">RandomData.java</span></div><h1>RandomData.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.util;
+
+import java.io.File;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+
+import org.apache.avro.Schema;
+import org.apache.avro.file.CodecFactory;
+import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.generic.GenericArray;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+
+/** Generates schema data as Java objects with random values. */
+public class RandomData implements Iterable&lt;Object&gt; {
+  public static final String USE_DEFAULT = &quot;use-default&quot;;
+
+  private final Schema root;
+  private final long seed;
+  private final int count;
+  private final boolean utf8ForString;
+
+  public RandomData(Schema schema, int count) {
+<span class="nc" id="L47">    this(schema, count, false);</span>
+<span class="nc" id="L48">  }</span>
+
+  public RandomData(Schema schema, int count, long seed) {
+<span class="nc" id="L51">    this(schema, count, seed, false);</span>
+<span class="nc" id="L52">  }</span>
+
+  public RandomData(Schema schema, int count, boolean utf8ForString) {
+<span class="nc" id="L55">    this(schema, count, System.currentTimeMillis(), utf8ForString);</span>
+<span class="nc" id="L56">  }</span>
+
+<span class="nc" id="L58">  public RandomData(Schema schema, int count, long seed, boolean utf8ForString) {</span>
+<span class="nc" id="L59">    this.root = schema;</span>
+<span class="nc" id="L60">    this.seed = seed;</span>
+<span class="nc" id="L61">    this.count = count;</span>
+<span class="nc" id="L62">    this.utf8ForString = utf8ForString;</span>
+<span class="nc" id="L63">  }</span>
+
+  @Override
+  public Iterator&lt;Object&gt; iterator() {
+<span class="nc" id="L67">    return new Iterator&lt;Object&gt;() {</span>
+      private int n;
+<span class="nc" id="L69">      private Random random = new Random(seed);</span>
+
+      @Override
+      public boolean hasNext() {
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        return n &lt; count;</span>
+      }
+
+      @Override
+      public Object next() {
+<span class="nc" id="L78">        n++;</span>
+<span class="nc" id="L79">        return generate(root, random, 0);</span>
+      }
+
+      @Override
+      public void remove() {
+<span class="nc" id="L84">        throw new UnsupportedOperationException();</span>
+      }
+    };
+  }
+
+  @SuppressWarnings(value = &quot;unchecked&quot;)
+  private Object generate(Schema schema, Random random, int d) {
+<span class="nc bnc" id="L91" title="All 15 branches missed.">    switch (schema.getType()) {</span>
+    case RECORD:
+<span class="nc" id="L93">      GenericRecord record = new GenericData.Record(schema);</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">      for (Schema.Field field : schema.getFields()) {</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        Object value = (field.getObjectProp(USE_DEFAULT) == null) ? generate(field.schema(), random, d + 1)</span>
+<span class="nc" id="L96">            : GenericData.get().getDefaultValue(field);</span>
+<span class="nc" id="L97">        record.put(field.name(), value);</span>
+<span class="nc" id="L98">      }</span>
+<span class="nc" id="L99">      return record;</span>
+    case ENUM:
+<span class="nc" id="L101">      List&lt;String&gt; symbols = schema.getEnumSymbols();</span>
+<span class="nc" id="L102">      return new GenericData.EnumSymbol(schema, symbols.get(random.nextInt(symbols.size())));</span>
+    case ARRAY:
+<span class="nc" id="L104">      int length = (random.nextInt(5) + 2) - d;</span>
+      @SuppressWarnings(&quot;rawtypes&quot;)
+<span class="nc bnc" id="L106" title="All 2 branches missed.">      GenericArray&lt;Object&gt; array = new GenericData.Array(length &lt;= 0 ? 0 : length, schema);</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">      for (int i = 0; i &lt; length; i++)</span>
+<span class="nc" id="L108">        array.add(generate(schema.getElementType(), random, d + 1));</span>
+<span class="nc" id="L109">      return array;</span>
+    case MAP:
+<span class="nc" id="L111">      length = (random.nextInt(5) + 2) - d;</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">      Map&lt;Object, Object&gt; map = new HashMap&lt;&gt;(length &lt;= 0 ? 0 : length);</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">      for (int i = 0; i &lt; length; i++) {</span>
+<span class="nc" id="L114">        map.put(randomString(random, 40), generate(schema.getValueType(), random, d + 1));</span>
+      }
+<span class="nc" id="L116">      return map;</span>
+    case UNION:
+<span class="nc" id="L118">      List&lt;Schema&gt; types = schema.getTypes();</span>
+<span class="nc" id="L119">      return generate(types.get(random.nextInt(types.size())), random, d);</span>
+    case FIXED:
+<span class="nc" id="L121">      byte[] bytes = new byte[schema.getFixedSize()];</span>
+<span class="nc" id="L122">      random.nextBytes(bytes);</span>
+<span class="nc" id="L123">      return new GenericData.Fixed(schema, bytes);</span>
+    case STRING:
+<span class="nc" id="L125">      return randomString(random, 40);</span>
+    case BYTES:
+<span class="nc" id="L127">      return randomBytes(random, 40);</span>
+    case INT:
+<span class="nc" id="L129">      return random.nextInt();</span>
+    case LONG:
+<span class="nc" id="L131">      return random.nextLong();</span>
+    case FLOAT:
+<span class="nc" id="L133">      return random.nextFloat();</span>
+    case DOUBLE:
+<span class="nc" id="L135">      return random.nextDouble();</span>
+    case BOOLEAN:
+<span class="nc" id="L137">      return random.nextBoolean();</span>
+    case NULL:
+<span class="nc" id="L139">      return null;</span>
+    default:
+<span class="nc" id="L141">      throw new RuntimeException(&quot;Unknown type: &quot; + schema);</span>
+    }
+  }
+
+<span class="nc" id="L145">  private static final Charset UTF8 = Charset.forName(&quot;UTF-8&quot;);</span>
+
+  private Object randomString(Random random, int maxLength) {
+<span class="nc" id="L148">    int length = random.nextInt(maxLength);</span>
+<span class="nc" id="L149">    byte[] bytes = new byte[length];</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">    for (int i = 0; i &lt; length; i++) {</span>
+<span class="nc" id="L151">      bytes[i] = (byte) ('a' + random.nextInt('z' - 'a'));</span>
+    }
+<span class="nc bnc" id="L153" title="All 2 branches missed.">    return utf8ForString ? new Utf8(bytes) : new String(bytes, UTF8);</span>
+  }
+
+  private static ByteBuffer randomBytes(Random rand, int maxLength) {
+<span class="nc" id="L157">    ByteBuffer bytes = ByteBuffer.allocate(rand.nextInt(maxLength));</span>
+<span class="nc" id="L158">    bytes.limit(bytes.capacity());</span>
+<span class="nc" id="L159">    rand.nextBytes(bytes.array());</span>
+<span class="nc" id="L160">    return bytes;</span>
+  }
+
+  public static void main(String[] args) throws Exception {
+<span class="nc bnc" id="L164" title="All 4 branches missed.">    if (args.length &lt; 3 || args.length &gt; 4) {</span>
+<span class="nc" id="L165">      System.out.println(&quot;Usage: RandomData &lt;schemafile&gt; &lt;outputfile&gt; &lt;count&gt; [codec]&quot;);</span>
+<span class="nc" id="L166">      System.exit(-1);</span>
+    }
+<span class="nc" id="L168">    Schema sch = new Schema.Parser().parse(new File(args[0]));</span>
+<span class="nc" id="L169">    DataFileWriter&lt;Object&gt; writer = new DataFileWriter&lt;&gt;(new GenericDatumWriter&lt;&gt;());</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">    writer.setCodec(CodecFactory.fromString(args.length &gt;= 4 ? args[3] : &quot;null&quot;));</span>
+<span class="nc" id="L171">    writer.create(sch, new File(args[1]));</span>
+    try {
+<span class="nc bnc" id="L173" title="All 2 branches missed.">      for (Object datum : new RandomData(sch, Integer.parseInt(args[2]))) {</span>
+<span class="nc" id="L174">        writer.append(datum);</span>
+<span class="nc" id="L175">      }</span>
+    } finally {
+<span class="nc" id="L177">      writer.close();</span>
+    }
+<span class="nc" id="L179">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

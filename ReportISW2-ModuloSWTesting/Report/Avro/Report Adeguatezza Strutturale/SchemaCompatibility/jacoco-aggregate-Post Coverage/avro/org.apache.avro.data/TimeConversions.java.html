@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>TimeConversions.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.data</a> &gt; <span class="el_source">TimeConversions.java</span></div><h1>TimeConversions.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.avro.data;
+
+import org.apache.avro.Conversion;
+import org.apache.avro.LogicalType;
+import org.apache.avro.LogicalTypes;
+import org.apache.avro.Schema;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
+import java.util.concurrent.TimeUnit;
+
+<span class="nc" id="L33">public class TimeConversions {</span>
+<span class="nc" id="L34">  public static class DateConversion extends Conversion&lt;LocalDate&gt; {</span>
+
+    @Override
+    public Class&lt;LocalDate&gt; getConvertedType() {
+<span class="nc" id="L38">      return LocalDate.class;</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L43">      return &quot;date&quot;;</span>
+    }
+
+    @Override
+    public LocalDate fromInt(Integer daysFromEpoch, Schema schema, LogicalType type) {
+<span class="nc" id="L48">      return LocalDate.ofEpochDay(daysFromEpoch);</span>
+    }
+
+    @Override
+    public Integer toInt(LocalDate date, Schema schema, LogicalType type) {
+<span class="nc" id="L53">      long epochDays = date.toEpochDay();</span>
+
+<span class="nc" id="L55">      return (int) epochDays;</span>
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L60">      return LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT));</span>
+    }
+  }
+
+<span class="nc" id="L64">  public static class TimeMillisConversion extends Conversion&lt;LocalTime&gt; {</span>
+    @Override
+    public Class&lt;LocalTime&gt; getConvertedType() {
+<span class="nc" id="L67">      return LocalTime.class;</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L72">      return &quot;time-millis&quot;;</span>
+    }
+
+    @Override
+    public String adjustAndSetValue(String varName, String valParamName) {
+<span class="nc" id="L77">      return varName + &quot; = &quot; + valParamName + &quot;.truncatedTo(java.time.temporal.ChronoUnit.MILLIS);&quot;;</span>
+    }
+
+    @Override
+    public LocalTime fromInt(Integer millisFromMidnight, Schema schema, LogicalType type) {
+<span class="nc" id="L82">      return LocalTime.ofNanoOfDay(TimeUnit.MILLISECONDS.toNanos(millisFromMidnight));</span>
+    }
+
+    @Override
+    public Integer toInt(LocalTime time, Schema schema, LogicalType type) {
+<span class="nc" id="L87">      return (int) TimeUnit.NANOSECONDS.toMillis(time.toNanoOfDay());</span>
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L92">      return LogicalTypes.timeMillis().addToSchema(Schema.create(Schema.Type.INT));</span>
+    }
+  }
+
+<span class="nc" id="L96">  public static class TimeMicrosConversion extends Conversion&lt;LocalTime&gt; {</span>
+    @Override
+    public Class&lt;LocalTime&gt; getConvertedType() {
+<span class="nc" id="L99">      return LocalTime.class;</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L104">      return &quot;time-micros&quot;;</span>
+    }
+
+    @Override
+    public String adjustAndSetValue(String varName, String valParamName) {
+<span class="nc" id="L109">      return varName + &quot; = &quot; + valParamName + &quot;.truncatedTo(java.time.temporal.ChronoUnit.MICROS);&quot;;</span>
+    }
+
+    @Override
+    public LocalTime fromLong(Long microsFromMidnight, Schema schema, LogicalType type) {
+<span class="nc" id="L114">      return LocalTime.ofNanoOfDay(TimeUnit.MICROSECONDS.toNanos(microsFromMidnight));</span>
+    }
+
+    @Override
+    public Long toLong(LocalTime time, Schema schema, LogicalType type) {
+<span class="nc" id="L119">      return TimeUnit.NANOSECONDS.toMicros(time.toNanoOfDay());</span>
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L124">      return LogicalTypes.timeMicros().addToSchema(Schema.create(Schema.Type.LONG));</span>
+    }
+  }
+
+<span class="nc" id="L128">  public static class TimestampMillisConversion extends Conversion&lt;Instant&gt; {</span>
+    @Override
+    public Class&lt;Instant&gt; getConvertedType() {
+<span class="nc" id="L131">      return Instant.class;</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L136">      return &quot;timestamp-millis&quot;;</span>
+    }
+
+    @Override
+    public String adjustAndSetValue(String varName, String valParamName) {
+<span class="nc" id="L141">      return varName + &quot; = &quot; + valParamName + &quot;.truncatedTo(java.time.temporal.ChronoUnit.MILLIS);&quot;;</span>
+    }
+
+    @Override
+    public Instant fromLong(Long millisFromEpoch, Schema schema, LogicalType type) {
+<span class="nc" id="L146">      return Instant.ofEpochMilli(millisFromEpoch);</span>
+    }
+
+    @Override
+    public Long toLong(Instant timestamp, Schema schema, LogicalType type) {
+<span class="nc" id="L151">      return timestamp.toEpochMilli();</span>
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L156">      return LogicalTypes.timestampMillis().addToSchema(Schema.create(Schema.Type.LONG));</span>
+    }
+  }
+
+<span class="nc" id="L160">  public static class TimestampMicrosConversion extends Conversion&lt;Instant&gt; {</span>
+    @Override
+    public Class&lt;Instant&gt; getConvertedType() {
+<span class="nc" id="L163">      return Instant.class;</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L168">      return &quot;timestamp-micros&quot;;</span>
+    }
+
+    @Override
+    public String adjustAndSetValue(String varName, String valParamName) {
+<span class="nc" id="L173">      return varName + &quot; = &quot; + valParamName + &quot;.truncatedTo(java.time.temporal.ChronoUnit.MICROS);&quot;;</span>
+    }
+
+    @Override
+    public Instant fromLong(Long microsFromEpoch, Schema schema, LogicalType type) {
+<span class="nc" id="L178">      long epochSeconds = microsFromEpoch / (1_000_000);</span>
+<span class="nc" id="L179">      long nanoAdjustment = (microsFromEpoch % (1_000_000)) * 1_000;</span>
+
+<span class="nc" id="L181">      return Instant.ofEpochSecond(epochSeconds, nanoAdjustment);</span>
+    }
+
+    @Override
+    public Long toLong(Instant instant, Schema schema, LogicalType type) {
+<span class="nc" id="L186">      long seconds = instant.getEpochSecond();</span>
+<span class="nc" id="L187">      int nanos = instant.getNano();</span>
+
+<span class="nc bnc" id="L189" title="All 4 branches missed.">      if (seconds &lt; 0 &amp;&amp; nanos &gt; 0) {</span>
+<span class="nc" id="L190">        long micros = Math.multiplyExact(seconds + 1, 1_000_000);</span>
+<span class="nc" id="L191">        long adjustment = (nanos / 1_000L) - 1_000_000;</span>
+
+<span class="nc" id="L193">        return Math.addExact(micros, adjustment);</span>
+      } else {
+<span class="nc" id="L195">        long micros = Math.multiplyExact(seconds, 1_000_000);</span>
+
+<span class="nc" id="L197">        return Math.addExact(micros, nanos / 1_000);</span>
+      }
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L203">      return LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG));</span>
+    }
+  }
+
+<span class="nc" id="L207">  public static class LocalTimestampMillisConversion extends Conversion&lt;LocalDateTime&gt; {</span>
+<span class="nc" id="L208">    private final TimestampMillisConversion timestampMillisConversion = new TimestampMillisConversion();</span>
+
+    @Override
+    public Class&lt;LocalDateTime&gt; getConvertedType() {
+<span class="nc" id="L212">      return LocalDateTime.class;</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L217">      return &quot;local-timestamp-millis&quot;;</span>
+    }
+
+    @Override
+    public LocalDateTime fromLong(Long millisFromEpoch, Schema schema, LogicalType type) {
+<span class="nc" id="L222">      Instant instant = timestampMillisConversion.fromLong(millisFromEpoch, schema, type);</span>
+<span class="nc" id="L223">      return LocalDateTime.ofInstant(instant, ZoneOffset.UTC);</span>
+    }
+
+    @Override
+    public Long toLong(LocalDateTime timestamp, Schema schema, LogicalType type) {
+<span class="nc" id="L228">      Instant instant = timestamp.toInstant(ZoneOffset.UTC);</span>
+<span class="nc" id="L229">      return timestampMillisConversion.toLong(instant, schema, type);</span>
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L234">      return LogicalTypes.localTimestampMillis().addToSchema(Schema.create(Schema.Type.LONG));</span>
+    }
+  }
+
+<span class="nc" id="L238">  public static class LocalTimestampMicrosConversion extends Conversion&lt;LocalDateTime&gt; {</span>
+<span class="nc" id="L239">    private final TimestampMicrosConversion timestampMicrosConversion = new TimestampMicrosConversion();</span>
+
+    @Override
+    public Class&lt;LocalDateTime&gt; getConvertedType() {
+<span class="nc" id="L243">      return LocalDateTime.class;</span>
+    }
+
+    @Override
+    public String getLogicalTypeName() {
+<span class="nc" id="L248">      return &quot;local-timestamp-micros&quot;;</span>
+    }
+
+    @Override
+    public LocalDateTime fromLong(Long microsFromEpoch, Schema schema, LogicalType type) {
+<span class="nc" id="L253">      Instant instant = timestampMicrosConversion.fromLong(microsFromEpoch, schema, type);</span>
+<span class="nc" id="L254">      return LocalDateTime.ofInstant(instant, ZoneOffset.UTC);</span>
+    }
+
+    @Override
+    public Long toLong(LocalDateTime timestamp, Schema schema, LogicalType type) {
+<span class="nc" id="L259">      Instant instant = timestamp.toInstant(ZoneOffset.UTC);</span>
+<span class="nc" id="L260">      return timestampMicrosConversion.toLong(instant, schema, type);</span>
+    }
+
+    @Override
+    public Schema getRecommendedSchema() {
+<span class="nc" id="L265">      return LogicalTypes.localTimestampMicros().addToSchema(Schema.create(Schema.Type.LONG));</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

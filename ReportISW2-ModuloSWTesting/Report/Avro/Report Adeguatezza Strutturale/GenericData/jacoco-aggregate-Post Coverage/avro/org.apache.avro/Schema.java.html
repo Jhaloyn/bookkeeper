@@ -1,0 +1,2001 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Schema.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro</a> &gt; <span class="el_source">Schema.java</span></div><h1>Schema.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro;
+
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.DoubleNode;
+import com.fasterxml.jackson.databind.node.NullNode;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Serializable;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import org.apache.avro.util.internal.Accessor;
+import org.apache.avro.util.internal.Accessor.FieldAccessor;
+import org.apache.avro.util.internal.JacksonUtils;
+
+/**
+ * An abstract data type.
+ * &lt;p&gt;
+ * A schema may be one of:
+ * &lt;ul&gt;
+ * &lt;li&gt;A &lt;i&gt;record&lt;/i&gt;, mapping field names to field value data;
+ * &lt;li&gt;An &lt;i&gt;enum&lt;/i&gt;, containing one of a small set of symbols;
+ * &lt;li&gt;An &lt;i&gt;array&lt;/i&gt; of values, all of the same schema;
+ * &lt;li&gt;A &lt;i&gt;map&lt;/i&gt;, containing string/value pairs, of a declared schema;
+ * &lt;li&gt;A &lt;i&gt;union&lt;/i&gt; of other schemas;
+ * &lt;li&gt;A &lt;i&gt;fixed&lt;/i&gt; sized binary object;
+ * &lt;li&gt;A unicode &lt;i&gt;string&lt;/i&gt;;
+ * &lt;li&gt;A sequence of &lt;i&gt;bytes&lt;/i&gt;;
+ * &lt;li&gt;A 32-bit signed &lt;i&gt;int&lt;/i&gt;;
+ * &lt;li&gt;A 64-bit signed &lt;i&gt;long&lt;/i&gt;;
+ * &lt;li&gt;A 32-bit IEEE single-&lt;i&gt;float&lt;/i&gt;; or
+ * &lt;li&gt;A 64-bit IEEE &lt;i&gt;double&lt;/i&gt;-float; or
+ * &lt;li&gt;A &lt;i&gt;boolean&lt;/i&gt;; or
+ * &lt;li&gt;&lt;i&gt;null&lt;/i&gt;.
+ * &lt;/ul&gt;
+ *
+ * A schema can be constructed using one of its static &lt;tt&gt;createXXX&lt;/tt&gt;
+ * methods, or more conveniently using {@link SchemaBuilder}. The schema objects
+ * are &lt;i&gt;logically&lt;/i&gt; immutable. There are only two mutating methods -
+ * {@link #setFields(List)} and {@link #addProp(String, String)}. The following
+ * restrictions apply on these two methods.
+ * &lt;ul&gt;
+ * &lt;li&gt;{@link #setFields(List)}, can be called at most once. This method exists
+ * in order to enable clients to build recursive schemas.
+ * &lt;li&gt;{@link #addProp(String, String)} can be called with property names that
+ * are not present already. It is not possible to change or delete an existing
+ * property.
+ * &lt;/ul&gt;
+ */
+public abstract class Schema extends JsonProperties implements Serializable {
+
+  private static final long serialVersionUID = 1L;
+
+  protected Object writeReplace() {
+<span class="nc" id="L92">    SerializableSchema ss = new SerializableSchema();</span>
+<span class="nc" id="L93">    ss.schemaString = toString();</span>
+<span class="nc" id="L94">    return ss;</span>
+  }
+
+  private static final class SerializableSchema implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private String schemaString;
+
+    private Object readResolve() {
+<span class="nc" id="L104">      return new Schema.Parser().parse(schemaString);</span>
+    }
+  }
+
+<span class="fc" id="L108">  static final JsonFactory FACTORY = new JsonFactory();</span>
+<span class="fc" id="L109">  static final ObjectMapper MAPPER = new ObjectMapper(FACTORY);</span>
+
+  private static final int NO_HASHCODE = Integer.MIN_VALUE;
+
+  static {
+<span class="fc" id="L114">    FACTORY.enable(JsonParser.Feature.ALLOW_COMMENTS);</span>
+<span class="fc" id="L115">    FACTORY.setCodec(MAPPER);</span>
+  }
+
+  /** The type of a schema. */
+<span class="fc" id="L119">  public enum Type {</span>
+<span class="fc" id="L120">    RECORD, ENUM, ARRAY, MAP, UNION, FIXED, STRING, BYTES, INT, LONG, FLOAT, DOUBLE, BOOLEAN, NULL;</span>
+    private final String name;
+
+<span class="fc" id="L123">    private Type() {</span>
+<span class="fc" id="L124">      this.name = this.name().toLowerCase(Locale.ENGLISH);</span>
+<span class="fc" id="L125">    }</span>
+
+    public String getName() {
+<span class="fc" id="L128">      return name;</span>
+    }
+  };
+
+  private final Type type;
+<span class="fc" id="L133">  private LogicalType logicalType = null;</span>
+
+  Schema(Type type) {
+<span class="fc bfc" id="L136" title="All 2 branches covered.">    super(type == Type.ENUM ? ENUM_RESERVED : SCHEMA_RESERVED);</span>
+<span class="fc" id="L137">    this.type = type;</span>
+<span class="fc" id="L138">  }</span>
+
+  /** Create a schema for a primitive type. */
+  public static Schema create(Type type) {
+<span class="pc bpc" id="L142" title="1 of 9 branches missed.">    switch (type) {</span>
+    case STRING:
+<span class="fc" id="L144">      return new StringSchema();</span>
+    case BYTES:
+<span class="fc" id="L146">      return new BytesSchema();</span>
+    case INT:
+<span class="fc" id="L148">      return new IntSchema();</span>
+    case LONG:
+<span class="fc" id="L150">      return new LongSchema();</span>
+    case FLOAT:
+<span class="fc" id="L152">      return new FloatSchema();</span>
+    case DOUBLE:
+<span class="fc" id="L154">      return new DoubleSchema();</span>
+    case BOOLEAN:
+<span class="fc" id="L156">      return new BooleanSchema();</span>
+    case NULL:
+<span class="fc" id="L158">      return new NullSchema();</span>
+    default:
+<span class="nc" id="L160">      throw new AvroRuntimeException(&quot;Can't create a: &quot; + type);</span>
+    }
+  }
+
+<span class="fc" id="L164">  private static final Set&lt;String&gt; SCHEMA_RESERVED = new HashSet&lt;&gt;(</span>
+<span class="fc" id="L165">      Arrays.asList(&quot;doc&quot;, &quot;fields&quot;, &quot;items&quot;, &quot;name&quot;, &quot;namespace&quot;, &quot;size&quot;, &quot;symbols&quot;, &quot;values&quot;, &quot;type&quot;, &quot;aliases&quot;));</span>
+
+<span class="fc" id="L167">  private static final Set&lt;String&gt; ENUM_RESERVED = new HashSet&lt;&gt;(SCHEMA_RESERVED);</span>
+  static {
+<span class="fc" id="L169">    ENUM_RESERVED.add(&quot;default&quot;);</span>
+  }
+
+<span class="fc" id="L172">  int hashCode = NO_HASHCODE;</span>
+
+  @Override
+  public void addProp(String name, String value) {
+<span class="nc" id="L176">    super.addProp(name, value);</span>
+<span class="nc" id="L177">    hashCode = NO_HASHCODE;</span>
+<span class="nc" id="L178">  }</span>
+
+  @Override
+  public void addProp(String name, Object value) {
+<span class="nc" id="L182">    super.addProp(name, value);</span>
+<span class="nc" id="L183">    hashCode = NO_HASHCODE;</span>
+<span class="nc" id="L184">  }</span>
+
+  public LogicalType getLogicalType() {
+<span class="nc" id="L187">    return logicalType;</span>
+  }
+
+  void setLogicalType(LogicalType logicalType) {
+<span class="nc" id="L191">    this.logicalType = logicalType;</span>
+<span class="nc" id="L192">  }</span>
+
+  /**
+   * Create an anonymous record schema.
+   *
+   * @deprecated This method allows to create Schema objects that cannot be parsed
+   *             by {@link Schema.Parser#parse(String)}. It will be removed in a
+   *             future version of Avro. Better use
+   *             i{@link #createRecord(String, String, String, boolean, List)} to
+   *             produce a fully qualified Schema.
+   */
+  @Deprecated
+  public static Schema createRecord(List&lt;Field&gt; fields) {
+<span class="nc" id="L205">    Schema result = createRecord(null, null, null, false);</span>
+<span class="nc" id="L206">    result.setFields(fields);</span>
+<span class="nc" id="L207">    return result;</span>
+  }
+
+  /** Create a named record schema. */
+  public static Schema createRecord(String name, String doc, String namespace, boolean isError) {
+<span class="nc" id="L212">    return new RecordSchema(new Name(name, namespace), doc, isError);</span>
+  }
+
+  /** Create a named record schema with fields already set. */
+  public static Schema createRecord(String name, String doc, String namespace, boolean isError, List&lt;Field&gt; fields) {
+<span class="nc" id="L217">    return new RecordSchema(new Name(name, namespace), doc, isError, fields);</span>
+  }
+
+  /** Create an enum schema. */
+  public static Schema createEnum(String name, String doc, String namespace, List&lt;String&gt; values) {
+<span class="nc" id="L222">    return new EnumSchema(new Name(name, namespace), doc, new LockableArrayList&lt;&gt;(values), null);</span>
+  }
+
+  /** Create an enum schema. */
+  public static Schema createEnum(String name, String doc, String namespace, List&lt;String&gt; values, String enumDefault) {
+<span class="nc" id="L227">    return new EnumSchema(new Name(name, namespace), doc, new LockableArrayList&lt;&gt;(values), enumDefault);</span>
+  }
+
+  /** Create an array schema. */
+  public static Schema createArray(Schema elementType) {
+<span class="nc" id="L232">    return new ArraySchema(elementType);</span>
+  }
+
+  /** Create a map schema. */
+  public static Schema createMap(Schema valueType) {
+<span class="nc" id="L237">    return new MapSchema(valueType);</span>
+  }
+
+  /** Create a union schema. */
+  public static Schema createUnion(List&lt;Schema&gt; types) {
+<span class="nc" id="L242">    return new UnionSchema(new LockableArrayList&lt;&gt;(types));</span>
+  }
+
+  /** Create a union schema. */
+  public static Schema createUnion(Schema... types) {
+<span class="nc" id="L247">    return createUnion(new LockableArrayList&lt;&gt;(types));</span>
+  }
+
+  /** Create a fixed schema. */
+  public static Schema createFixed(String name, String doc, String space, int size) {
+<span class="nc" id="L252">    return new FixedSchema(new Name(name, space), doc, size);</span>
+  }
+
+  /** Return the type of this schema. */
+  public Type getType() {
+<span class="fc" id="L257">    return type;</span>
+  }
+
+  /**
+   * If this is a record, returns the Field with the given name
+   * &lt;tt&gt;fieldName&lt;/tt&gt;. If there is no field by that name, a &lt;tt&gt;null&lt;/tt&gt; is
+   * returned.
+   */
+  public Field getField(String fieldname) {
+<span class="nc" id="L266">    throw new AvroRuntimeException(&quot;Not a record: &quot; + this);</span>
+  }
+
+  /**
+   * If this is a record, returns the fields in it. The returned list is in the
+   * order of their positions.
+   */
+  public List&lt;Field&gt; getFields() {
+<span class="nc" id="L274">    throw new AvroRuntimeException(&quot;Not a record: &quot; + this);</span>
+  }
+
+  /**
+   * If this is a record, set its fields. The fields can be set only once in a
+   * schema.
+   */
+  public void setFields(List&lt;Field&gt; fields) {
+<span class="nc" id="L282">    throw new AvroRuntimeException(&quot;Not a record: &quot; + this);</span>
+  }
+
+  /** If this is an enum, return its symbols. */
+  public List&lt;String&gt; getEnumSymbols() {
+<span class="nc" id="L287">    throw new AvroRuntimeException(&quot;Not an enum: &quot; + this);</span>
+  }
+
+  /** If this is an enum, return its default value. */
+  public String getEnumDefault() {
+<span class="nc" id="L292">    throw new AvroRuntimeException(&quot;Not an enum: &quot; + this);</span>
+  }
+
+  /** If this is an enum, return a symbol's ordinal value. */
+  public int getEnumOrdinal(String symbol) {
+<span class="nc" id="L297">    throw new AvroRuntimeException(&quot;Not an enum: &quot; + this);</span>
+  }
+
+  /** If this is an enum, returns true if it contains given symbol. */
+  public boolean hasEnumSymbol(String symbol) {
+<span class="nc" id="L302">    throw new AvroRuntimeException(&quot;Not an enum: &quot; + this);</span>
+  }
+
+  /**
+   * If this is a record, enum or fixed, returns its name, otherwise the name of
+   * the primitive type.
+   */
+  public String getName() {
+<span class="fc" id="L310">    return type.name;</span>
+  }
+
+  /**
+   * If this is a record, enum, or fixed, returns its docstring, if available.
+   * Otherwise, returns null.
+   */
+  public String getDoc() {
+<span class="nc" id="L318">    return null;</span>
+  }
+
+  /** If this is a record, enum or fixed, returns its namespace, if any. */
+  public String getNamespace() {
+<span class="nc" id="L323">    throw new AvroRuntimeException(&quot;Not a named type: &quot; + this);</span>
+  }
+
+  /**
+   * If this is a record, enum or fixed, returns its namespace-qualified name,
+   * otherwise returns the name of the primitive type.
+   */
+  public String getFullName() {
+<span class="fc" id="L331">    return getName();</span>
+  }
+
+  /** If this is a record, enum or fixed, add an alias. */
+  public void addAlias(String alias) {
+<span class="nc" id="L336">    throw new AvroRuntimeException(&quot;Not a named type: &quot; + this);</span>
+  }
+
+  /** If this is a record, enum or fixed, add an alias. */
+  public void addAlias(String alias, String space) {
+<span class="nc" id="L341">    throw new AvroRuntimeException(&quot;Not a named type: &quot; + this);</span>
+  }
+
+  /** If this is a record, enum or fixed, return its aliases, if any. */
+  public Set&lt;String&gt; getAliases() {
+<span class="nc" id="L346">    throw new AvroRuntimeException(&quot;Not a named type: &quot; + this);</span>
+  }
+
+  /** Returns true if this record is an error type. */
+  public boolean isError() {
+<span class="nc" id="L351">    throw new AvroRuntimeException(&quot;Not a record: &quot; + this);</span>
+  }
+
+  /** If this is an array, returns its element type. */
+  public Schema getElementType() {
+<span class="nc" id="L356">    throw new AvroRuntimeException(&quot;Not an array: &quot; + this);</span>
+  }
+
+  /** If this is a map, returns its value type. */
+  public Schema getValueType() {
+<span class="nc" id="L361">    throw new AvroRuntimeException(&quot;Not a map: &quot; + this);</span>
+  }
+
+  /** If this is a union, returns its types. */
+  public List&lt;Schema&gt; getTypes() {
+<span class="nc" id="L366">    throw new AvroRuntimeException(&quot;Not a union: &quot; + this);</span>
+  }
+
+  /** If this is a union, return the branch with the provided full name. */
+  public Integer getIndexNamed(String name) {
+<span class="nc" id="L371">    throw new AvroRuntimeException(&quot;Not a union: &quot; + this);</span>
+  }
+
+  /** If this is fixed, returns its size. */
+  public int getFixedSize() {
+<span class="nc" id="L376">    throw new AvroRuntimeException(&quot;Not fixed: &quot; + this);</span>
+  }
+
+  /** Render this as &lt;a href=&quot;https://json.org/&quot;&gt;JSON&lt;/a&gt;. */
+  @Override
+  public String toString() {
+<span class="fc" id="L382">    return toString(false);</span>
+  }
+
+  /**
+   * Render this as &lt;a href=&quot;https://json.org/&quot;&gt;JSON&lt;/a&gt;.
+   *
+   * @param pretty if true, pretty-print JSON.
+   */
+  public String toString(boolean pretty) {
+    try {
+<span class="fc" id="L392">      StringWriter writer = new StringWriter();</span>
+<span class="fc" id="L393">      JsonGenerator gen = FACTORY.createGenerator(writer);</span>
+<span class="fc bfc" id="L394" title="All 2 branches covered.">      if (pretty)</span>
+<span class="fc" id="L395">        gen.useDefaultPrettyPrinter();</span>
+<span class="fc" id="L396">      toJson(new Names(), gen);</span>
+<span class="fc" id="L397">      gen.flush();</span>
+<span class="fc" id="L398">      return writer.toString();</span>
+<span class="nc" id="L399">    } catch (IOException e) {</span>
+<span class="nc" id="L400">      throw new AvroRuntimeException(e);</span>
+    }
+  }
+
+  void toJson(Names names, JsonGenerator gen) throws IOException {
+<span class="pc bpc" id="L405" title="1 of 2 branches missed.">    if (!hasProps()) { // no props defined</span>
+<span class="fc" id="L406">      gen.writeString(getName()); // just write name</span>
+    } else {
+<span class="nc" id="L408">      gen.writeStartObject();</span>
+<span class="nc" id="L409">      gen.writeStringField(&quot;type&quot;, getName());</span>
+<span class="nc" id="L410">      writeProps(gen);</span>
+<span class="nc" id="L411">      gen.writeEndObject();</span>
+    }
+<span class="fc" id="L413">  }</span>
+
+  void fieldsToJson(Names names, JsonGenerator gen) throws IOException {
+<span class="nc" id="L416">    throw new AvroRuntimeException(&quot;Not a record: &quot; + this);</span>
+  }
+
+  @Override
+  public boolean equals(Object o) {
+<span class="nc bnc" id="L421" title="All 2 branches missed.">    if (o == this)</span>
+<span class="nc" id="L422">      return true;</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">    if (!(o instanceof Schema))</span>
+<span class="nc" id="L424">      return false;</span>
+<span class="nc" id="L425">    Schema that = (Schema) o;</span>
+<span class="nc bnc" id="L426" title="All 2 branches missed.">    if (!(this.type == that.type))</span>
+<span class="nc" id="L427">      return false;</span>
+<span class="nc bnc" id="L428" title="All 4 branches missed.">    return equalCachedHash(that) &amp;&amp; propsEqual(that);</span>
+  }
+
+  @Override
+  public final int hashCode() {
+<span class="nc bnc" id="L433" title="All 2 branches missed.">    if (hashCode == NO_HASHCODE)</span>
+<span class="nc" id="L434">      hashCode = computeHash();</span>
+<span class="nc" id="L435">    return hashCode;</span>
+  }
+
+  int computeHash() {
+<span class="nc" id="L439">    return getType().hashCode() + propsHashCode();</span>
+  }
+
+  final boolean equalCachedHash(Schema other) {
+<span class="nc bnc" id="L443" title="All 6 branches missed.">    return (hashCode == other.hashCode) || (hashCode == NO_HASHCODE) || (other.hashCode == NO_HASHCODE);</span>
+  }
+
+<span class="fc" id="L446">  private static final Set&lt;String&gt; FIELD_RESERVED = Collections</span>
+<span class="fc" id="L447">      .unmodifiableSet(new HashSet&lt;&gt;(Arrays.asList(&quot;default&quot;, &quot;doc&quot;, &quot;name&quot;, &quot;order&quot;, &quot;type&quot;, &quot;aliases&quot;)));</span>
+
+  /** Returns true if this record is an union type. */
+  public boolean isUnion() {
+<span class="nc" id="L451">    return this instanceof UnionSchema;</span>
+  }
+
+  /** Returns true if this record is an union type containing null. */
+  public boolean isNullable() {
+<span class="nc bnc" id="L456" title="All 2 branches missed.">    if (!isUnion()) {</span>
+<span class="nc" id="L457">      return getType().equals(Schema.Type.NULL);</span>
+    }
+
+<span class="nc bnc" id="L460" title="All 2 branches missed.">    for (Schema schema : getTypes()) {</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">      if (schema.isNullable()) {</span>
+<span class="nc" id="L462">        return true;</span>
+      }
+<span class="nc" id="L464">    }</span>
+
+<span class="nc" id="L466">    return false;</span>
+  }
+
+  /** A field within a record. */
+  public static class Field extends JsonProperties {
+
+    static {
+<span class="fc" id="L473">      Accessor.setAccessor(new FieldAccessor() {</span>
+        @Override
+        protected JsonNode defaultValue(Field field) {
+<span class="nc" id="L476">          return field.defaultValue();</span>
+        }
+
+        @Override
+        protected Field createField(String name, Schema schema, String doc, JsonNode defaultValue) {
+<span class="nc" id="L481">          return new Field(name, schema, doc, defaultValue, true, Order.ASCENDING);</span>
+        }
+
+        @Override
+        protected Field createField(String name, Schema schema, String doc, JsonNode defaultValue, boolean validate,
+            Order order) {
+<span class="nc" id="L487">          return new Field(name, schema, doc, defaultValue, validate, order);</span>
+        }
+      });
+    }
+
+    /** How values of this field should be ordered when sorting records. */
+<span class="fc" id="L493">    public enum Order {</span>
+<span class="fc" id="L494">      ASCENDING, DESCENDING, IGNORE;</span>
+      private final String name;
+
+<span class="fc" id="L497">      private Order() {</span>
+<span class="fc" id="L498">        this.name = this.name().toLowerCase(Locale.ENGLISH);</span>
+<span class="fc" id="L499">      }</span>
+    };
+
+    /**
+     * For Schema unions with a &quot;null&quot; type as the first entry, this can be used to
+     * specify that the default for the union is null.
+     */
+<span class="fc" id="L506">    public static final Object NULL_DEFAULT_VALUE = new Object();</span>
+
+    private final String name; // name of the field.
+<span class="fc" id="L509">    private int position = -1;</span>
+    private final Schema schema;
+    private final String doc;
+    private final JsonNode defaultValue;
+    private final Order order;
+    private Set&lt;String&gt; aliases;
+
+    Field(String name, Schema schema, String doc, JsonNode defaultValue, boolean validateDefault, Order order) {
+<span class="fc" id="L517">      super(FIELD_RESERVED);</span>
+<span class="fc" id="L518">      this.name = validateName(name);</span>
+<span class="fc" id="L519">      this.schema = schema;</span>
+<span class="fc" id="L520">      this.doc = doc;</span>
+<span class="pc bpc" id="L521" title="1 of 2 branches missed.">      this.defaultValue = validateDefault ? validateDefault(name, schema, defaultValue) : defaultValue;</span>
+<span class="fc" id="L522">      this.order = Objects.requireNonNull(order, &quot;Order cannot be null&quot;);</span>
+<span class="fc" id="L523">    }</span>
+
+    /**
+     * Constructs a new Field instance with the same {@code name}, {@code doc},
+     * {@code defaultValue}, and {@code order} as {@code field} has with changing
+     * the schema to the specified one. It also copies all the {@code props} and
+     * {@code aliases}.
+     */
+    public Field(Field field, Schema schema) {
+<span class="nc" id="L532">      this(field.name, schema, field.doc, field.defaultValue, true, field.order);</span>
+<span class="nc" id="L533">      putAll(field);</span>
+<span class="nc bnc" id="L534" title="All 2 branches missed.">      if (field.aliases != null)</span>
+<span class="nc" id="L535">        aliases = new LinkedHashSet&lt;&gt;(field.aliases);</span>
+<span class="nc" id="L536">    }</span>
+
+    /**
+     *
+     */
+    public Field(String name, Schema schema) {
+<span class="nc" id="L542">      this(name, schema, (String) null, (JsonNode) null, true, Order.ASCENDING);</span>
+<span class="nc" id="L543">    }</span>
+
+    /**
+     *
+     */
+    public Field(String name, Schema schema, String doc) {
+<span class="nc" id="L549">      this(name, schema, doc, (JsonNode) null, true, Order.ASCENDING);</span>
+<span class="nc" id="L550">    }</span>
+
+    /**
+     * @param defaultValue the default value for this field specified using the
+     *                     mapping in {@link JsonProperties}
+     */
+    public Field(String name, Schema schema, String doc, Object defaultValue) {
+<span class="nc" id="L557">      this(name, schema, doc,</span>
+<span class="nc bnc" id="L558" title="All 2 branches missed.">          defaultValue == NULL_DEFAULT_VALUE ? NullNode.getInstance() : JacksonUtils.toJsonNode(defaultValue), true,</span>
+          Order.ASCENDING);
+<span class="nc" id="L560">    }</span>
+
+    /**
+     * @param defaultValue the default value for this field specified using the
+     *                     mapping in {@link JsonProperties}
+     */
+    public Field(String name, Schema schema, String doc, Object defaultValue, Order order) {
+<span class="nc" id="L567">      this(name, schema, doc,</span>
+<span class="nc bnc" id="L568" title="All 2 branches missed.">          defaultValue == NULL_DEFAULT_VALUE ? NullNode.getInstance() : JacksonUtils.toJsonNode(defaultValue), true,</span>
+<span class="nc" id="L569">          Objects.requireNonNull(order));</span>
+<span class="nc" id="L570">    }</span>
+
+    public String name() {
+<span class="fc" id="L573">      return name;</span>
+    };
+
+    /** The position of this field within the record. */
+    public int pos() {
+<span class="fc" id="L578">      return position;</span>
+    }
+
+    /** This field's {@link Schema}. */
+    public Schema schema() {
+<span class="fc" id="L583">      return schema;</span>
+    }
+
+    /** Field's documentation within the record, if set. May return null. */
+    public String doc() {
+<span class="fc" id="L588">      return doc;</span>
+    }
+
+    /**
+     * @return true if this Field has a default value set. Can be used to determine
+     *         if a &quot;null&quot; return from defaultVal() is due to that being the default
+     *         value or just not set.
+     */
+    public boolean hasDefaultValue() {
+<span class="fc bfc" id="L597" title="All 2 branches covered.">      return defaultValue != null;</span>
+    }
+
+    JsonNode defaultValue() {
+<span class="fc" id="L601">      return defaultValue;</span>
+    }
+
+    /**
+     * @return the default value for this field specified using the mapping in
+     *         {@link JsonProperties}
+     */
+    public Object defaultVal() {
+<span class="nc" id="L609">      return JacksonUtils.toObject(defaultValue, schema);</span>
+    }
+
+    public Order order() {
+<span class="fc" id="L613">      return order;</span>
+    }
+
+    public void addAlias(String alias) {
+<span class="nc bnc" id="L617" title="All 2 branches missed.">      if (aliases == null)</span>
+<span class="nc" id="L618">        this.aliases = new LinkedHashSet&lt;&gt;();</span>
+<span class="nc" id="L619">      aliases.add(alias);</span>
+<span class="nc" id="L620">    }</span>
+
+    /** Return the defined aliases as an unmodifiable Set. */
+    public Set&lt;String&gt; aliases() {
+<span class="fc bfc" id="L624" title="All 2 branches covered.">      if (aliases == null)</span>
+<span class="fc" id="L625">        return Collections.emptySet();</span>
+<span class="fc" id="L626">      return Collections.unmodifiableSet(aliases);</span>
+    }
+
+    @Override
+    public boolean equals(Object other) {
+<span class="nc bnc" id="L631" title="All 2 branches missed.">      if (other == this)</span>
+<span class="nc" id="L632">        return true;</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">      if (!(other instanceof Field))</span>
+<span class="nc" id="L634">        return false;</span>
+<span class="nc" id="L635">      Field that = (Field) other;</span>
+<span class="nc bnc" id="L636" title="All 8 branches missed.">      return (name.equals(that.name)) &amp;&amp; (schema.equals(that.schema)) &amp;&amp; defaultValueEquals(that.defaultValue)</span>
+<span class="nc bnc" id="L637" title="All 2 branches missed.">          &amp;&amp; (order == that.order) &amp;&amp; propsEqual(that);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L642">      return name.hashCode() + schema.computeHash();</span>
+    }
+
+    private boolean defaultValueEquals(JsonNode thatDefaultValue) {
+<span class="nc bnc" id="L646" title="All 2 branches missed.">      if (defaultValue == null)</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">        return thatDefaultValue == null;</span>
+<span class="nc bnc" id="L648" title="All 2 branches missed.">      if (thatDefaultValue == null)</span>
+<span class="nc" id="L649">        return false;</span>
+<span class="nc bnc" id="L650" title="All 2 branches missed.">      if (Double.isNaN(defaultValue.doubleValue()))</span>
+<span class="nc" id="L651">        return Double.isNaN(thatDefaultValue.doubleValue());</span>
+<span class="nc" id="L652">      return defaultValue.equals(thatDefaultValue);</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L657">      return name + &quot; type:&quot; + schema.type + &quot; pos:&quot; + position;</span>
+    }
+  }
+
+  static class Name {
+    private final String name;
+    private final String space;
+    private final String full;
+
+<span class="fc" id="L666">    public Name(String name, String space) {</span>
+<span class="pc bpc" id="L667" title="1 of 2 branches missed.">      if (name == null) { // anonymous</span>
+<span class="nc" id="L668">        this.name = this.space = this.full = null;</span>
+<span class="nc" id="L669">        return;</span>
+      }
+<span class="fc" id="L671">      int lastDot = name.lastIndexOf('.');</span>
+<span class="pc bpc" id="L672" title="1 of 2 branches missed.">      if (lastDot &lt; 0) { // unqualified name</span>
+<span class="fc" id="L673">        this.name = validateName(name);</span>
+      } else { // qualified name
+<span class="nc" id="L675">        space = name.substring(0, lastDot); // get space from name</span>
+<span class="nc" id="L676">        this.name = validateName(name.substring(lastDot + 1, name.length()));</span>
+      }
+<span class="pc bpc" id="L678" title="1 of 2 branches missed.">      if (&quot;&quot;.equals(space))</span>
+<span class="nc" id="L679">        space = null;</span>
+<span class="fc" id="L680">      this.space = space;</span>
+<span class="fc bfc" id="L681" title="All 2 branches covered.">      this.full = (this.space == null) ? this.name : this.space + &quot;.&quot; + this.name;</span>
+<span class="fc" id="L682">    }</span>
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L686" title="All 2 branches missed.">      if (o == this)</span>
+<span class="nc" id="L687">        return true;</span>
+<span class="nc bnc" id="L688" title="All 2 branches missed.">      if (!(o instanceof Name))</span>
+<span class="nc" id="L689">        return false;</span>
+<span class="nc" id="L690">      Name that = (Name) o;</span>
+<span class="nc" id="L691">      return Objects.equals(full, that.full);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="pc bpc" id="L696" title="1 of 2 branches missed.">      return full == null ? 0 : full.hashCode();</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L701">      return full;</span>
+    }
+
+    public void writeName(Names names, JsonGenerator gen) throws IOException {
+<span class="pc bpc" id="L705" title="1 of 2 branches missed.">      if (name != null)</span>
+<span class="fc" id="L706">        gen.writeStringField(&quot;name&quot;, name);</span>
+<span class="fc bfc" id="L707" title="All 2 branches covered.">      if (space != null) {</span>
+<span class="fc bfc" id="L708" title="All 2 branches covered.">        if (!space.equals(names.space()))</span>
+<span class="fc" id="L709">          gen.writeStringField(&quot;namespace&quot;, space);</span>
+<span class="pc bpc" id="L710" title="1 of 2 branches missed.">      } else if (names.space() != null) { // null within non-null</span>
+<span class="nc" id="L711">        gen.writeStringField(&quot;namespace&quot;, &quot;&quot;);</span>
+      }
+<span class="fc" id="L713">    }</span>
+
+    public String getQualified(String defaultSpace) {
+<span class="nc bnc" id="L716" title="All 4 branches missed.">      return (space == null || space.equals(defaultSpace)) ? name : full;</span>
+    }
+  }
+
+  private static abstract class NamedSchema extends Schema {
+    final Name name;
+    final String doc;
+    Set&lt;Name&gt; aliases;
+
+    public NamedSchema(Type type, Name name, String doc) {
+<span class="fc" id="L726">      super(type);</span>
+<span class="fc" id="L727">      this.name = name;</span>
+<span class="fc" id="L728">      this.doc = doc;</span>
+<span class="pc bpc" id="L729" title="1 of 2 branches missed.">      if (PRIMITIVES.containsKey(name.full)) {</span>
+<span class="nc" id="L730">        throw new AvroTypeException(&quot;Schemas may not be named after primitives: &quot; + name.full);</span>
+      }
+<span class="fc" id="L732">    }</span>
+
+    @Override
+    public String getName() {
+<span class="fc" id="L736">      return name.name;</span>
+    }
+
+    @Override
+    public String getDoc() {
+<span class="fc" id="L741">      return doc;</span>
+    }
+
+    @Override
+    public String getNamespace() {
+<span class="nc" id="L746">      return name.space;</span>
+    }
+
+    @Override
+    public String getFullName() {
+<span class="fc" id="L751">      return name.full;</span>
+    }
+
+    @Override
+    public void addAlias(String alias) {
+<span class="fc" id="L756">      addAlias(alias, null);</span>
+<span class="fc" id="L757">    }</span>
+
+    @Override
+    public void addAlias(String name, String space) {
+<span class="pc bpc" id="L761" title="1 of 2 branches missed.">      if (aliases == null)</span>
+<span class="fc" id="L762">        this.aliases = new LinkedHashSet&lt;&gt;();</span>
+<span class="pc bpc" id="L763" title="1 of 2 branches missed.">      if (space == null)</span>
+<span class="fc" id="L764">        space = this.name.space;</span>
+<span class="fc" id="L765">      aliases.add(new Name(name, space));</span>
+<span class="fc" id="L766">    }</span>
+
+    @Override
+    public Set&lt;String&gt; getAliases() {
+<span class="fc" id="L770">      Set&lt;String&gt; result = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L771" title="All 2 branches covered.">      if (aliases != null)</span>
+<span class="fc bfc" id="L772" title="All 2 branches covered.">        for (Name alias : aliases)</span>
+<span class="fc" id="L773">          result.add(alias.full);</span>
+<span class="fc" id="L774">      return result;</span>
+    }
+
+    public boolean writeNameRef(Names names, JsonGenerator gen) throws IOException {
+<span class="pc bpc" id="L778" title="1 of 2 branches missed.">      if (this.equals(names.get(name))) {</span>
+<span class="nc" id="L779">        gen.writeString(name.getQualified(names.space()));</span>
+<span class="nc" id="L780">        return true;</span>
+<span class="pc bpc" id="L781" title="1 of 2 branches missed.">      } else if (name.name != null) {</span>
+<span class="fc" id="L782">        names.put(name, this);</span>
+      }
+<span class="fc" id="L784">      return false;</span>
+    }
+
+    public void writeName(Names names, JsonGenerator gen) throws IOException {
+<span class="fc" id="L788">      name.writeName(names, gen);</span>
+<span class="fc" id="L789">    }</span>
+
+    public boolean equalNames(NamedSchema that) {
+<span class="nc" id="L792">      return this.name.equals(that.name);</span>
+    }
+
+    @Override
+    int computeHash() {
+<span class="nc" id="L797">      return super.computeHash() + name.hashCode();</span>
+    }
+
+    public void aliasesToJson(JsonGenerator gen) throws IOException {
+<span class="pc bpc" id="L801" title="3 of 4 branches missed.">      if (aliases == null || aliases.size() == 0)</span>
+<span class="fc" id="L802">        return;</span>
+<span class="nc" id="L803">      gen.writeFieldName(&quot;aliases&quot;);</span>
+<span class="nc" id="L804">      gen.writeStartArray();</span>
+<span class="nc bnc" id="L805" title="All 2 branches missed.">      for (Name alias : aliases)</span>
+<span class="nc" id="L806">        gen.writeString(alias.getQualified(name.space));</span>
+<span class="nc" id="L807">      gen.writeEndArray();</span>
+<span class="nc" id="L808">    }</span>
+
+  }
+
+  /**
+   * Useful as key of {@link Map}s when traversing two schemas at the same time
+   * and need to watch for recursion.
+   */
+  public static class SeenPair {
+    private Object s1;
+    private Object s2;
+
+<span class="nc" id="L820">    public SeenPair(Object s1, Object s2) {</span>
+<span class="nc" id="L821">      this.s1 = s1;</span>
+<span class="nc" id="L822">      this.s2 = s2;</span>
+<span class="nc" id="L823">    }</span>
+
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L826" title="All 2 branches missed.">      if (!(o instanceof SeenPair))</span>
+<span class="nc" id="L827">        return false;</span>
+<span class="nc bnc" id="L828" title="All 4 branches missed.">      return this.s1 == ((SeenPair) o).s1 &amp;&amp; this.s2 == ((SeenPair) o).s2;</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L833">      return System.identityHashCode(s1) + System.identityHashCode(s2);</span>
+    }
+  }
+
+<span class="fc" id="L837">  private static final ThreadLocal&lt;Set&gt; SEEN_EQUALS = ThreadLocal.withInitial(HashSet::new);</span>
+<span class="fc" id="L838">  private static final ThreadLocal&lt;Map&gt; SEEN_HASHCODE = ThreadLocal.withInitial(IdentityHashMap::new);</span>
+
+  @SuppressWarnings(value = &quot;unchecked&quot;)
+  private static class RecordSchema extends NamedSchema {
+    private List&lt;Field&gt; fields;
+    private Map&lt;String, Field&gt; fieldMap;
+    private final boolean isError;
+
+    public RecordSchema(Name name, String doc, boolean isError) {
+<span class="fc" id="L847">      super(Type.RECORD, name, doc);</span>
+<span class="fc" id="L848">      this.isError = isError;</span>
+<span class="fc" id="L849">    }</span>
+
+    public RecordSchema(Name name, String doc, boolean isError, List&lt;Field&gt; fields) {
+<span class="nc" id="L852">      super(Type.RECORD, name, doc);</span>
+<span class="nc" id="L853">      this.isError = isError;</span>
+<span class="nc" id="L854">      setFields(fields);</span>
+<span class="nc" id="L855">    }</span>
+
+    @Override
+    public boolean isError() {
+<span class="nc" id="L859">      return isError;</span>
+    }
+
+    @Override
+    public Field getField(String fieldname) {
+<span class="pc bpc" id="L864" title="1 of 2 branches missed.">      if (fieldMap == null)</span>
+<span class="nc" id="L865">        throw new AvroRuntimeException(&quot;Schema fields not set yet&quot;);</span>
+<span class="fc" id="L866">      return fieldMap.get(fieldname);</span>
+    }
+
+    @Override
+    public List&lt;Field&gt; getFields() {
+<span class="pc bpc" id="L871" title="1 of 2 branches missed.">      if (fields == null)</span>
+<span class="nc" id="L872">        throw new AvroRuntimeException(&quot;Schema fields not set yet&quot;);</span>
+<span class="fc" id="L873">      return fields;</span>
+    }
+
+    @Override
+    public void setFields(List&lt;Field&gt; fields) {
+<span class="pc bpc" id="L878" title="1 of 2 branches missed.">      if (this.fields != null) {</span>
+<span class="nc" id="L879">        throw new AvroRuntimeException(&quot;Fields are already set&quot;);</span>
+      }
+<span class="fc" id="L881">      int i = 0;</span>
+<span class="fc" id="L882">      fieldMap = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L883">      LockableArrayList ff = new LockableArrayList();</span>
+<span class="fc bfc" id="L884" title="All 2 branches covered.">      for (Field f : fields) {</span>
+<span class="pc bpc" id="L885" title="1 of 2 branches missed.">        if (f.position != -1)</span>
+<span class="nc" id="L886">          throw new AvroRuntimeException(&quot;Field already used: &quot; + f);</span>
+<span class="fc" id="L887">        f.position = i++;</span>
+<span class="fc" id="L888">        final Field existingField = fieldMap.put(f.name(), f);</span>
+<span class="pc bpc" id="L889" title="1 of 2 branches missed.">        if (existingField != null) {</span>
+<span class="nc" id="L890">          throw new AvroRuntimeException(</span>
+<span class="nc" id="L891">              String.format(&quot;Duplicate field %s in record %s: %s and %s.&quot;, f.name(), name, f, existingField));</span>
+        }
+<span class="fc" id="L893">        ff.add(f);</span>
+<span class="fc" id="L894">      }</span>
+<span class="fc" id="L895">      this.fields = ff.lock();</span>
+<span class="fc" id="L896">      this.hashCode = NO_HASHCODE;</span>
+<span class="fc" id="L897">    }</span>
+
+    @Override
+    public boolean equals(Object o) {
+<span class="pc bpc" id="L901" title="1 of 2 branches missed.">      if (o == this)</span>
+<span class="nc" id="L902">        return true;</span>
+<span class="pc bpc" id="L903" title="1 of 2 branches missed.">      if (!(o instanceof RecordSchema))</span>
+<span class="fc" id="L904">        return false;</span>
+<span class="nc" id="L905">      RecordSchema that = (RecordSchema) o;</span>
+<span class="nc bnc" id="L906" title="All 2 branches missed.">      if (!equalCachedHash(that))</span>
+<span class="nc" id="L907">        return false;</span>
+<span class="nc bnc" id="L908" title="All 2 branches missed.">      if (!equalNames(that))</span>
+<span class="nc" id="L909">        return false;</span>
+<span class="nc bnc" id="L910" title="All 2 branches missed.">      if (!propsEqual(that))</span>
+<span class="nc" id="L911">        return false;</span>
+<span class="nc" id="L912">      Set seen = SEEN_EQUALS.get();</span>
+<span class="nc" id="L913">      SeenPair here = new SeenPair(this, o);</span>
+<span class="nc bnc" id="L914" title="All 2 branches missed.">      if (seen.contains(here))</span>
+<span class="nc" id="L915">        return true; // prevent stack overflow</span>
+<span class="nc" id="L916">      boolean first = seen.isEmpty();</span>
+      try {
+<span class="nc" id="L918">        seen.add(here);</span>
+<span class="nc" id="L919">        return Objects.equals(fields, that.fields);</span>
+      } finally {
+<span class="nc bnc" id="L921" title="All 2 branches missed.">        if (first)</span>
+<span class="nc" id="L922">          seen.clear();</span>
+      }
+    }
+
+    @Override
+    int computeHash() {
+<span class="nc" id="L928">      Map seen = SEEN_HASHCODE.get();</span>
+<span class="nc bnc" id="L929" title="All 2 branches missed.">      if (seen.containsKey(this))</span>
+<span class="nc" id="L930">        return 0; // prevent stack overflow</span>
+<span class="nc" id="L931">      boolean first = seen.isEmpty();</span>
+      try {
+<span class="nc" id="L933">        seen.put(this, this);</span>
+<span class="nc" id="L934">        return super.computeHash() + fields.hashCode();</span>
+      } finally {
+<span class="nc bnc" id="L936" title="All 2 branches missed.">        if (first)</span>
+<span class="nc" id="L937">          seen.clear();</span>
+      }
+    }
+
+    @Override
+    void toJson(Names names, JsonGenerator gen) throws IOException {
+<span class="pc bpc" id="L943" title="1 of 2 branches missed.">      if (writeNameRef(names, gen))</span>
+<span class="nc" id="L944">        return;</span>
+<span class="fc" id="L945">      String savedSpace = names.space; // save namespace</span>
+<span class="fc" id="L946">      gen.writeStartObject();</span>
+<span class="pc bpc" id="L947" title="1 of 2 branches missed.">      gen.writeStringField(&quot;type&quot;, isError ? &quot;error&quot; : &quot;record&quot;);</span>
+<span class="fc" id="L948">      writeName(names, gen);</span>
+<span class="fc" id="L949">      names.space = name.space; // set default namespace</span>
+<span class="pc bpc" id="L950" title="1 of 2 branches missed.">      if (getDoc() != null)</span>
+<span class="nc" id="L951">        gen.writeStringField(&quot;doc&quot;, getDoc());</span>
+
+<span class="pc bpc" id="L953" title="1 of 2 branches missed.">      if (fields != null) {</span>
+<span class="fc" id="L954">        gen.writeFieldName(&quot;fields&quot;);</span>
+<span class="fc" id="L955">        fieldsToJson(names, gen);</span>
+      }
+
+<span class="fc" id="L958">      writeProps(gen);</span>
+<span class="fc" id="L959">      aliasesToJson(gen);</span>
+<span class="fc" id="L960">      gen.writeEndObject();</span>
+<span class="fc" id="L961">      names.space = savedSpace; // restore namespace</span>
+<span class="fc" id="L962">    }</span>
+
+    @Override
+    void fieldsToJson(Names names, JsonGenerator gen) throws IOException {
+<span class="fc" id="L966">      gen.writeStartArray();</span>
+<span class="fc bfc" id="L967" title="All 2 branches covered.">      for (Field f : fields) {</span>
+<span class="fc" id="L968">        gen.writeStartObject();</span>
+<span class="fc" id="L969">        gen.writeStringField(&quot;name&quot;, f.name());</span>
+<span class="fc" id="L970">        gen.writeFieldName(&quot;type&quot;);</span>
+<span class="fc" id="L971">        f.schema().toJson(names, gen);</span>
+<span class="pc bpc" id="L972" title="1 of 2 branches missed.">        if (f.doc() != null)</span>
+<span class="nc" id="L973">          gen.writeStringField(&quot;doc&quot;, f.doc());</span>
+<span class="fc bfc" id="L974" title="All 2 branches covered.">        if (f.hasDefaultValue()) {</span>
+<span class="fc" id="L975">          gen.writeFieldName(&quot;default&quot;);</span>
+<span class="fc" id="L976">          gen.writeTree(f.defaultValue());</span>
+        }
+<span class="pc bpc" id="L978" title="1 of 2 branches missed.">        if (f.order() != Field.Order.ASCENDING)</span>
+<span class="nc" id="L979">          gen.writeStringField(&quot;order&quot;, f.order().name);</span>
+<span class="pc bpc" id="L980" title="1 of 4 branches missed.">        if (f.aliases != null &amp;&amp; f.aliases.size() != 0) {</span>
+<span class="fc" id="L981">          gen.writeFieldName(&quot;aliases&quot;);</span>
+<span class="fc" id="L982">          gen.writeStartArray();</span>
+<span class="fc bfc" id="L983" title="All 2 branches covered.">          for (String alias : f.aliases)</span>
+<span class="fc" id="L984">            gen.writeString(alias);</span>
+<span class="fc" id="L985">          gen.writeEndArray();</span>
+        }
+<span class="fc" id="L987">        f.writeProps(gen);</span>
+<span class="fc" id="L988">        gen.writeEndObject();</span>
+<span class="fc" id="L989">      }</span>
+<span class="fc" id="L990">      gen.writeEndArray();</span>
+<span class="fc" id="L991">    }</span>
+  }
+
+  private static class EnumSchema extends NamedSchema {
+    private final List&lt;String&gt; symbols;
+    private final Map&lt;String, Integer&gt; ordinals;
+    private final String enumDefault;
+
+    public EnumSchema(Name name, String doc, LockableArrayList&lt;String&gt; symbols, String enumDefault) {
+<span class="fc" id="L1000">      super(Type.ENUM, name, doc);</span>
+<span class="fc" id="L1001">      this.symbols = symbols.lock();</span>
+<span class="fc" id="L1002">      this.ordinals = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L1003">      this.enumDefault = enumDefault;</span>
+<span class="fc" id="L1004">      int i = 0;</span>
+<span class="fc bfc" id="L1005" title="All 2 branches covered.">      for (String symbol : symbols)</span>
+<span class="pc bpc" id="L1006" title="1 of 2 branches missed.">        if (ordinals.put(validateName(symbol), i++) != null)</span>
+<span class="nc" id="L1007">          throw new SchemaParseException(&quot;Duplicate enum symbol: &quot; + symbol);</span>
+<span class="pc bpc" id="L1008" title="3 of 4 branches missed.">      if (enumDefault != null &amp;&amp; !symbols.contains(enumDefault))</span>
+<span class="nc" id="L1009">        throw new SchemaParseException(</span>
+            &quot;The Enum Default: &quot; + enumDefault + &quot; is not in the enum symbol set: &quot; + symbols);
+<span class="fc" id="L1011">    }</span>
+
+    @Override
+    public List&lt;String&gt; getEnumSymbols() {
+<span class="fc" id="L1015">      return symbols;</span>
+    }
+
+    @Override
+    public boolean hasEnumSymbol(String symbol) {
+<span class="nc" id="L1020">      return ordinals.containsKey(symbol);</span>
+    }
+
+    @Override
+    public int getEnumOrdinal(String symbol) {
+<span class="fc" id="L1025">      return ordinals.get(symbol);</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="pc bpc" id="L1030" title="1 of 2 branches missed.">      if (o == this)</span>
+<span class="nc" id="L1031">        return true;</span>
+<span class="pc bpc" id="L1032" title="1 of 2 branches missed.">      if (!(o instanceof EnumSchema))</span>
+<span class="fc" id="L1033">        return false;</span>
+<span class="nc" id="L1034">      EnumSchema that = (EnumSchema) o;</span>
+<span class="nc bnc" id="L1035" title="All 8 branches missed.">      return equalCachedHash(that) &amp;&amp; equalNames(that) &amp;&amp; symbols.equals(that.symbols) &amp;&amp; propsEqual(that);</span>
+    }
+
+    @Override
+    public String getEnumDefault() {
+<span class="fc" id="L1040">      return enumDefault;</span>
+    }
+
+    @Override
+    int computeHash() {
+<span class="nc" id="L1045">      return super.computeHash() + symbols.hashCode();</span>
+    }
+
+    @Override
+    void toJson(Names names, JsonGenerator gen) throws IOException {
+<span class="pc bpc" id="L1050" title="1 of 2 branches missed.">      if (writeNameRef(names, gen))</span>
+<span class="nc" id="L1051">        return;</span>
+<span class="fc" id="L1052">      gen.writeStartObject();</span>
+<span class="fc" id="L1053">      gen.writeStringField(&quot;type&quot;, &quot;enum&quot;);</span>
+<span class="fc" id="L1054">      writeName(names, gen);</span>
+<span class="pc bpc" id="L1055" title="1 of 2 branches missed.">      if (getDoc() != null)</span>
+<span class="nc" id="L1056">        gen.writeStringField(&quot;doc&quot;, getDoc());</span>
+<span class="fc" id="L1057">      gen.writeArrayFieldStart(&quot;symbols&quot;);</span>
+<span class="fc bfc" id="L1058" title="All 2 branches covered.">      for (String symbol : symbols)</span>
+<span class="fc" id="L1059">        gen.writeString(symbol);</span>
+<span class="fc" id="L1060">      gen.writeEndArray();</span>
+<span class="pc bpc" id="L1061" title="1 of 2 branches missed.">      if (getEnumDefault() != null)</span>
+<span class="nc" id="L1062">        gen.writeStringField(&quot;default&quot;, getEnumDefault());</span>
+<span class="fc" id="L1063">      writeProps(gen);</span>
+<span class="fc" id="L1064">      aliasesToJson(gen);</span>
+<span class="fc" id="L1065">      gen.writeEndObject();</span>
+<span class="fc" id="L1066">    }</span>
+  }
+
+  private static class ArraySchema extends Schema {
+    private final Schema elementType;
+
+    public ArraySchema(Schema elementType) {
+<span class="fc" id="L1073">      super(Type.ARRAY);</span>
+<span class="fc" id="L1074">      this.elementType = elementType;</span>
+<span class="fc" id="L1075">    }</span>
+
+    @Override
+    public Schema getElementType() {
+<span class="fc" id="L1079">      return elementType;</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L1084" title="All 2 branches missed.">      if (o == this)</span>
+<span class="nc" id="L1085">        return true;</span>
+<span class="nc bnc" id="L1086" title="All 2 branches missed.">      if (!(o instanceof ArraySchema))</span>
+<span class="nc" id="L1087">        return false;</span>
+<span class="nc" id="L1088">      ArraySchema that = (ArraySchema) o;</span>
+<span class="nc bnc" id="L1089" title="All 6 branches missed.">      return equalCachedHash(that) &amp;&amp; elementType.equals(that.elementType) &amp;&amp; propsEqual(that);</span>
+    }
+
+    @Override
+    int computeHash() {
+<span class="nc" id="L1094">      return super.computeHash() + elementType.computeHash();</span>
+    }
+
+    @Override
+    void toJson(Names names, JsonGenerator gen) throws IOException {
+<span class="fc" id="L1099">      gen.writeStartObject();</span>
+<span class="fc" id="L1100">      gen.writeStringField(&quot;type&quot;, &quot;array&quot;);</span>
+<span class="fc" id="L1101">      gen.writeFieldName(&quot;items&quot;);</span>
+<span class="fc" id="L1102">      elementType.toJson(names, gen);</span>
+<span class="fc" id="L1103">      writeProps(gen);</span>
+<span class="fc" id="L1104">      gen.writeEndObject();</span>
+<span class="fc" id="L1105">    }</span>
+  }
+
+  private static class MapSchema extends Schema {
+    private final Schema valueType;
+
+    public MapSchema(Schema valueType) {
+<span class="fc" id="L1112">      super(Type.MAP);</span>
+<span class="fc" id="L1113">      this.valueType = valueType;</span>
+<span class="fc" id="L1114">    }</span>
+
+    @Override
+    public Schema getValueType() {
+<span class="fc" id="L1118">      return valueType;</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L1123" title="All 2 branches missed.">      if (o == this)</span>
+<span class="nc" id="L1124">        return true;</span>
+<span class="nc bnc" id="L1125" title="All 2 branches missed.">      if (!(o instanceof MapSchema))</span>
+<span class="nc" id="L1126">        return false;</span>
+<span class="nc" id="L1127">      MapSchema that = (MapSchema) o;</span>
+<span class="nc bnc" id="L1128" title="All 6 branches missed.">      return equalCachedHash(that) &amp;&amp; valueType.equals(that.valueType) &amp;&amp; propsEqual(that);</span>
+    }
+
+    @Override
+    int computeHash() {
+<span class="nc" id="L1133">      return super.computeHash() + valueType.computeHash();</span>
+    }
+
+    @Override
+    void toJson(Names names, JsonGenerator gen) throws IOException {
+<span class="fc" id="L1138">      gen.writeStartObject();</span>
+<span class="fc" id="L1139">      gen.writeStringField(&quot;type&quot;, &quot;map&quot;);</span>
+<span class="fc" id="L1140">      gen.writeFieldName(&quot;values&quot;);</span>
+<span class="fc" id="L1141">      valueType.toJson(names, gen);</span>
+<span class="fc" id="L1142">      writeProps(gen);</span>
+<span class="fc" id="L1143">      gen.writeEndObject();</span>
+<span class="fc" id="L1144">    }</span>
+  }
+
+  private static class UnionSchema extends Schema {
+    private final List&lt;Schema&gt; types;
+<span class="fc" id="L1149">    private final Map&lt;String, Integer&gt; indexByName = new HashMap&lt;&gt;();</span>
+
+    public UnionSchema(LockableArrayList&lt;Schema&gt; types) {
+<span class="fc" id="L1152">      super(Type.UNION);</span>
+<span class="fc" id="L1153">      this.types = types.lock();</span>
+<span class="fc" id="L1154">      int index = 0;</span>
+<span class="fc bfc" id="L1155" title="All 2 branches covered.">      for (Schema type : types) {</span>
+<span class="pc bpc" id="L1156" title="1 of 2 branches missed.">        if (type.getType() == Type.UNION)</span>
+<span class="nc" id="L1157">          throw new AvroRuntimeException(&quot;Nested union: &quot; + this);</span>
+<span class="fc" id="L1158">        String name = type.getFullName();</span>
+<span class="pc bpc" id="L1159" title="1 of 2 branches missed.">        if (name == null)</span>
+<span class="nc" id="L1160">          throw new AvroRuntimeException(&quot;Nameless in union:&quot; + this);</span>
+<span class="pc bpc" id="L1161" title="1 of 2 branches missed.">        if (indexByName.put(name, index++) != null)</span>
+<span class="nc" id="L1162">          throw new AvroRuntimeException(&quot;Duplicate in union:&quot; + name);</span>
+<span class="fc" id="L1163">      }</span>
+<span class="fc" id="L1164">    }</span>
+
+    @Override
+    public List&lt;Schema&gt; getTypes() {
+<span class="fc" id="L1168">      return types;</span>
+    }
+
+    @Override
+    public Integer getIndexNamed(String name) {
+<span class="fc" id="L1173">      return indexByName.get(name);</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L1178" title="All 2 branches missed.">      if (o == this)</span>
+<span class="nc" id="L1179">        return true;</span>
+<span class="nc bnc" id="L1180" title="All 2 branches missed.">      if (!(o instanceof UnionSchema))</span>
+<span class="nc" id="L1181">        return false;</span>
+<span class="nc" id="L1182">      UnionSchema that = (UnionSchema) o;</span>
+<span class="nc bnc" id="L1183" title="All 6 branches missed.">      return equalCachedHash(that) &amp;&amp; types.equals(that.types) &amp;&amp; propsEqual(that);</span>
+    }
+
+    @Override
+    int computeHash() {
+<span class="nc" id="L1188">      int hash = super.computeHash();</span>
+<span class="nc bnc" id="L1189" title="All 2 branches missed.">      for (Schema type : types)</span>
+<span class="nc" id="L1190">        hash += type.computeHash();</span>
+<span class="nc" id="L1191">      return hash;</span>
+    }
+
+    @Override
+    public void addProp(String name, String value) {
+<span class="nc" id="L1196">      throw new AvroRuntimeException(&quot;Can't set properties on a union: &quot; + this);</span>
+    }
+
+    @Override
+    void toJson(Names names, JsonGenerator gen) throws IOException {
+<span class="fc" id="L1201">      gen.writeStartArray();</span>
+<span class="fc bfc" id="L1202" title="All 2 branches covered.">      for (Schema type : types)</span>
+<span class="fc" id="L1203">        type.toJson(names, gen);</span>
+<span class="fc" id="L1204">      gen.writeEndArray();</span>
+<span class="fc" id="L1205">    }</span>
+  }
+
+  private static class FixedSchema extends NamedSchema {
+    private final int size;
+
+    public FixedSchema(Name name, String doc, int size) {
+<span class="fc" id="L1212">      super(Type.FIXED, name, doc);</span>
+<span class="pc bpc" id="L1213" title="1 of 2 branches missed.">      if (size &lt; 0)</span>
+<span class="nc" id="L1214">        throw new IllegalArgumentException(&quot;Invalid fixed size: &quot; + size);</span>
+<span class="fc" id="L1215">      this.size = size;</span>
+<span class="fc" id="L1216">    }</span>
+
+    @Override
+    public int getFixedSize() {
+<span class="fc" id="L1220">      return size;</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="pc bpc" id="L1225" title="1 of 2 branches missed.">      if (o == this)</span>
+<span class="nc" id="L1226">        return true;</span>
+<span class="pc bpc" id="L1227" title="1 of 2 branches missed.">      if (!(o instanceof FixedSchema))</span>
+<span class="fc" id="L1228">        return false;</span>
+<span class="nc" id="L1229">      FixedSchema that = (FixedSchema) o;</span>
+<span class="nc bnc" id="L1230" title="All 8 branches missed.">      return equalCachedHash(that) &amp;&amp; equalNames(that) &amp;&amp; size == that.size &amp;&amp; propsEqual(that);</span>
+    }
+
+    @Override
+    int computeHash() {
+<span class="nc" id="L1235">      return super.computeHash() + size;</span>
+    }
+
+    @Override
+    void toJson(Names names, JsonGenerator gen) throws IOException {
+<span class="pc bpc" id="L1240" title="1 of 2 branches missed.">      if (writeNameRef(names, gen))</span>
+<span class="nc" id="L1241">        return;</span>
+<span class="fc" id="L1242">      gen.writeStartObject();</span>
+<span class="fc" id="L1243">      gen.writeStringField(&quot;type&quot;, &quot;fixed&quot;);</span>
+<span class="fc" id="L1244">      writeName(names, gen);</span>
+<span class="pc bpc" id="L1245" title="1 of 2 branches missed.">      if (getDoc() != null)</span>
+<span class="nc" id="L1246">        gen.writeStringField(&quot;doc&quot;, getDoc());</span>
+<span class="fc" id="L1247">      gen.writeNumberField(&quot;size&quot;, size);</span>
+<span class="fc" id="L1248">      writeProps(gen);</span>
+<span class="fc" id="L1249">      aliasesToJson(gen);</span>
+<span class="fc" id="L1250">      gen.writeEndObject();</span>
+<span class="fc" id="L1251">    }</span>
+  }
+
+  private static class StringSchema extends Schema {
+    public StringSchema() {
+<span class="fc" id="L1256">      super(Type.STRING);</span>
+<span class="fc" id="L1257">    }</span>
+  }
+
+  private static class BytesSchema extends Schema {
+    public BytesSchema() {
+<span class="fc" id="L1262">      super(Type.BYTES);</span>
+<span class="fc" id="L1263">    }</span>
+  }
+
+  private static class IntSchema extends Schema {
+    public IntSchema() {
+<span class="fc" id="L1268">      super(Type.INT);</span>
+<span class="fc" id="L1269">    }</span>
+  }
+
+  private static class LongSchema extends Schema {
+    public LongSchema() {
+<span class="fc" id="L1274">      super(Type.LONG);</span>
+<span class="fc" id="L1275">    }</span>
+  }
+
+  private static class FloatSchema extends Schema {
+    public FloatSchema() {
+<span class="fc" id="L1280">      super(Type.FLOAT);</span>
+<span class="fc" id="L1281">    }</span>
+  }
+
+  private static class DoubleSchema extends Schema {
+    public DoubleSchema() {
+<span class="fc" id="L1286">      super(Type.DOUBLE);</span>
+<span class="fc" id="L1287">    }</span>
+  }
+
+  private static class BooleanSchema extends Schema {
+    public BooleanSchema() {
+<span class="fc" id="L1292">      super(Type.BOOLEAN);</span>
+<span class="fc" id="L1293">    }</span>
+  }
+
+  private static class NullSchema extends Schema {
+    public NullSchema() {
+<span class="fc" id="L1298">      super(Type.NULL);</span>
+<span class="fc" id="L1299">    }</span>
+  }
+
+  /**
+   * A parser for JSON-format schemas. Each named schema parsed with a parser is
+   * added to the names known to the parser so that subsequently parsed schemas
+   * may refer to it by name.
+   */
+<span class="fc" id="L1307">  public static class Parser {</span>
+<span class="fc" id="L1308">    private Names names = new Names();</span>
+<span class="fc" id="L1309">    private boolean validate = true;</span>
+<span class="fc" id="L1310">    private boolean validateDefaults = true;</span>
+
+    /**
+     * Adds the provided types to the set of defined, named types known to this
+     * parser.
+     */
+    public Parser addTypes(Map&lt;String, Schema&gt; types) {
+<span class="nc bnc" id="L1317" title="All 2 branches missed.">      for (Schema s : types.values())</span>
+<span class="nc" id="L1318">        names.add(s);</span>
+<span class="nc" id="L1319">      return this;</span>
+    }
+
+    /** Returns the set of defined, named types known to this parser. */
+    public Map&lt;String, Schema&gt; getTypes() {
+<span class="nc" id="L1324">      Map&lt;String, Schema&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1325" title="All 2 branches missed.">      for (Schema s : names.values())</span>
+<span class="nc" id="L1326">        result.put(s.getFullName(), s);</span>
+<span class="nc" id="L1327">      return result;</span>
+    }
+
+    /** Enable or disable name validation. */
+    public Parser setValidate(boolean validate) {
+<span class="nc" id="L1332">      this.validate = validate;</span>
+<span class="nc" id="L1333">      return this;</span>
+    }
+
+    /** True iff names are validated. True by default. */
+    public boolean getValidate() {
+<span class="nc" id="L1338">      return this.validate;</span>
+    }
+
+    /** Enable or disable default value validation. */
+    public Parser setValidateDefaults(boolean validateDefaults) {
+<span class="nc" id="L1343">      this.validateDefaults = validateDefaults;</span>
+<span class="nc" id="L1344">      return this;</span>
+    }
+
+    /** True iff default values are validated. False by default. */
+    public boolean getValidateDefaults() {
+<span class="nc" id="L1349">      return this.validateDefaults;</span>
+    }
+
+    /**
+     * Parse a schema from the provided file. If named, the schema is added to the
+     * names known to this parser.
+     */
+    public Schema parse(File file) throws IOException {
+<span class="nc" id="L1357">      return parse(FACTORY.createParser(file));</span>
+    }
+
+    /**
+     * Parse a schema from the provided stream. If named, the schema is added to the
+     * names known to this parser. The input stream stays open after the parsing.
+     */
+    public Schema parse(InputStream in) throws IOException {
+<span class="nc" id="L1365">      return parse(FACTORY.createParser(in).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE));</span>
+    }
+
+    /** Read a schema from one or more json strings */
+    public Schema parse(String s, String... more) {
+<span class="nc" id="L1370">      StringBuilder b = new StringBuilder(s);</span>
+<span class="nc bnc" id="L1371" title="All 2 branches missed.">      for (String part : more)</span>
+<span class="nc" id="L1372">        b.append(part);</span>
+<span class="nc" id="L1373">      return parse(b.toString());</span>
+    }
+
+    /**
+     * Parse a schema from the provided string. If named, the schema is added to the
+     * names known to this parser.
+     */
+    public Schema parse(String s) {
+      try {
+<span class="fc" id="L1382">        return parse(FACTORY.createParser(s));</span>
+<span class="nc" id="L1383">      } catch (IOException e) {</span>
+<span class="nc" id="L1384">        throw new SchemaParseException(e);</span>
+      }
+    }
+
+    private Schema parse(JsonParser parser) throws IOException {
+<span class="fc" id="L1389">      boolean saved = validateNames.get();</span>
+<span class="fc" id="L1390">      boolean savedValidateDefaults = VALIDATE_DEFAULTS.get();</span>
+      try {
+<span class="fc" id="L1392">        validateNames.set(validate);</span>
+<span class="fc" id="L1393">        VALIDATE_DEFAULTS.set(validateDefaults);</span>
+<span class="fc" id="L1394">        return Schema.parse(MAPPER.readTree(parser), names);</span>
+<span class="nc" id="L1395">      } catch (JsonParseException e) {</span>
+<span class="nc" id="L1396">        throw new SchemaParseException(e);</span>
+      } finally {
+<span class="fc" id="L1398">        parser.close();</span>
+<span class="fc" id="L1399">        validateNames.set(saved);</span>
+<span class="fc" id="L1400">        VALIDATE_DEFAULTS.set(savedValidateDefaults);</span>
+      }
+    }
+  }
+
+  /**
+   * Constructs a Schema object from JSON schema file &lt;tt&gt;file&lt;/tt&gt;. The contents
+   * of &lt;tt&gt;file&lt;/tt&gt; is expected to be in UTF-8 format.
+   *
+   * @param file The file to read the schema from.
+   * @return The freshly built Schema.
+   * @throws IOException if there was trouble reading the contents or they are
+   *                     invalid
+   * @deprecated use {@link Schema.Parser} instead.
+   */
+  @Deprecated
+  public static Schema parse(File file) throws IOException {
+<span class="nc" id="L1417">    return new Parser().parse(file);</span>
+  }
+
+  /**
+   * Constructs a Schema object from JSON schema stream &lt;tt&gt;in&lt;/tt&gt;. The contents
+   * of &lt;tt&gt;in&lt;/tt&gt; is expected to be in UTF-8 format.
+   *
+   * @param in The input stream to read the schema from.
+   * @return The freshly built Schema.
+   * @throws IOException if there was trouble reading the contents or they are
+   *                     invalid
+   * @deprecated use {@link Schema.Parser} instead.
+   */
+  @Deprecated
+  public static Schema parse(InputStream in) throws IOException {
+<span class="nc" id="L1432">    return new Parser().parse(in);</span>
+  }
+
+  /**
+   * Construct a schema from &lt;a href=&quot;https://json.org/&quot;&gt;JSON&lt;/a&gt; text.
+   *
+   * @deprecated use {@link Schema.Parser} instead.
+   */
+  @Deprecated
+  public static Schema parse(String jsonSchema) {
+<span class="nc" id="L1442">    return new Parser().parse(jsonSchema);</span>
+  }
+
+  /**
+   * Construct a schema from &lt;a href=&quot;https://json.org/&quot;&gt;JSON&lt;/a&gt; text.
+   *
+   * @param validate true if names should be validated, false if not.
+   * @deprecated use {@link Schema.Parser} instead.
+   */
+  @Deprecated
+  public static Schema parse(String jsonSchema, boolean validate) {
+<span class="nc" id="L1453">    return new Parser().setValidate(validate).parse(jsonSchema);</span>
+  }
+
+<span class="fc" id="L1456">  static final Map&lt;String, Type&gt; PRIMITIVES = new HashMap&lt;&gt;();</span>
+  static {
+<span class="fc" id="L1458">    PRIMITIVES.put(&quot;string&quot;, Type.STRING);</span>
+<span class="fc" id="L1459">    PRIMITIVES.put(&quot;bytes&quot;, Type.BYTES);</span>
+<span class="fc" id="L1460">    PRIMITIVES.put(&quot;int&quot;, Type.INT);</span>
+<span class="fc" id="L1461">    PRIMITIVES.put(&quot;long&quot;, Type.LONG);</span>
+<span class="fc" id="L1462">    PRIMITIVES.put(&quot;float&quot;, Type.FLOAT);</span>
+<span class="fc" id="L1463">    PRIMITIVES.put(&quot;double&quot;, Type.DOUBLE);</span>
+<span class="fc" id="L1464">    PRIMITIVES.put(&quot;boolean&quot;, Type.BOOLEAN);</span>
+<span class="fc" id="L1465">    PRIMITIVES.put(&quot;null&quot;, Type.NULL);</span>
+  }
+
+  static class Names extends LinkedHashMap&lt;Name, Schema&gt; {
+    private static final long serialVersionUID = 1L;
+    private String space; // default namespace
+
+<span class="fc" id="L1472">    public Names() {</span>
+<span class="fc" id="L1473">    }</span>
+
+<span class="nc" id="L1475">    public Names(String space) {</span>
+<span class="nc" id="L1476">      this.space = space;</span>
+<span class="nc" id="L1477">    }</span>
+
+    public String space() {
+<span class="fc" id="L1480">      return space;</span>
+    }
+
+    public void space(String space) {
+<span class="fc" id="L1484">      this.space = space;</span>
+<span class="fc" id="L1485">    }</span>
+
+    public Schema get(String o) {
+<span class="fc" id="L1488">      Type primitive = PRIMITIVES.get(o);</span>
+<span class="pc bpc" id="L1489" title="1 of 2 branches missed.">      if (primitive != null) {</span>
+<span class="fc" id="L1490">        return Schema.create(primitive);</span>
+      }
+<span class="nc" id="L1492">      Name name = new Name(o, space);</span>
+<span class="nc bnc" id="L1493" title="All 2 branches missed.">      if (!containsKey(name)) {</span>
+        // if not in default try anonymous
+<span class="nc" id="L1495">        name = new Name(o, &quot;&quot;);</span>
+      }
+<span class="nc" id="L1497">      return super.get(name);</span>
+    }
+
+    public boolean contains(Schema schema) {
+<span class="nc bnc" id="L1501" title="All 2 branches missed.">      return get(((NamedSchema) schema).name) != null;</span>
+    }
+
+    public void add(Schema schema) {
+<span class="fc" id="L1505">      put(((NamedSchema) schema).name, schema);</span>
+<span class="fc" id="L1506">    }</span>
+
+    @Override
+    public Schema put(Name name, Schema schema) {
+<span class="pc bpc" id="L1510" title="1 of 2 branches missed.">      if (containsKey(name))</span>
+<span class="nc" id="L1511">        throw new SchemaParseException(&quot;Can't redefine: &quot; + name);</span>
+<span class="fc" id="L1512">      return super.put(name, schema);</span>
+    }
+  }
+
+<span class="fc" id="L1516">  private static ThreadLocal&lt;Boolean&gt; validateNames = ThreadLocal.withInitial(() -&gt; true);</span>
+
+  private static String validateName(String name) {
+<span class="pc bpc" id="L1519" title="1 of 2 branches missed.">    if (!validateNames.get())</span>
+<span class="nc" id="L1520">      return name; // not validating names</span>
+<span class="fc" id="L1521">    int length = name.length();</span>
+<span class="pc bpc" id="L1522" title="1 of 2 branches missed.">    if (length == 0)</span>
+<span class="nc" id="L1523">      throw new SchemaParseException(&quot;Empty name&quot;);</span>
+<span class="fc" id="L1524">    char first = name.charAt(0);</span>
+<span class="pc bpc" id="L1525" title="3 of 4 branches missed.">    if (!(Character.isLetter(first) || first == '_'))</span>
+<span class="nc" id="L1526">      throw new SchemaParseException(&quot;Illegal initial character: &quot; + name);</span>
+<span class="fc bfc" id="L1527" title="All 2 branches covered.">    for (int i = 1; i &lt; length; i++) {</span>
+<span class="fc" id="L1528">      char c = name.charAt(i);</span>
+<span class="pc bpc" id="L1529" title="1 of 4 branches missed.">      if (!(Character.isLetterOrDigit(c) || c == '_'))</span>
+<span class="nc" id="L1530">        throw new SchemaParseException(&quot;Illegal character in: &quot; + name);</span>
+    }
+<span class="fc" id="L1532">    return name;</span>
+  }
+
+<span class="fc" id="L1535">  private static final ThreadLocal&lt;Boolean&gt; VALIDATE_DEFAULTS = ThreadLocal.withInitial(() -&gt; true);</span>
+
+  private static JsonNode validateDefault(String fieldName, Schema schema, JsonNode defaultValue) {
+<span class="pc bpc" id="L1538" title="2 of 6 branches missed.">    if (VALIDATE_DEFAULTS.get() &amp;&amp; (defaultValue != null) &amp;&amp; !isValidDefault(schema, defaultValue)) { // invalid default</span>
+<span class="nc" id="L1539">      String message = &quot;Invalid default for field &quot; + fieldName + &quot;: &quot; + defaultValue + &quot; not a &quot; + schema;</span>
+<span class="nc" id="L1540">      throw new AvroTypeException(message); // throw exception</span>
+    }
+<span class="fc" id="L1542">    return defaultValue;</span>
+  }
+
+  private static boolean isValidDefault(Schema schema, JsonNode defaultValue) {
+<span class="pc bpc" id="L1546" title="1 of 2 branches missed.">    if (defaultValue == null)</span>
+<span class="nc" id="L1547">      return false;</span>
+<span class="pc bpc" id="L1548" title="8 of 9 branches missed.">    switch (schema.getType()) {</span>
+    case STRING:
+    case BYTES:
+    case ENUM:
+    case FIXED:
+<span class="nc" id="L1553">      return defaultValue.isTextual();</span>
+    case INT:
+    case LONG:
+    case FLOAT:
+    case DOUBLE:
+<span class="fc" id="L1558">      return defaultValue.isNumber();</span>
+    case BOOLEAN:
+<span class="nc" id="L1560">      return defaultValue.isBoolean();</span>
+    case NULL:
+<span class="nc" id="L1562">      return defaultValue.isNull();</span>
+    case ARRAY:
+<span class="nc bnc" id="L1564" title="All 2 branches missed.">      if (!defaultValue.isArray())</span>
+<span class="nc" id="L1565">        return false;</span>
+<span class="nc bnc" id="L1566" title="All 2 branches missed.">      for (JsonNode element : defaultValue)</span>
+<span class="nc bnc" id="L1567" title="All 2 branches missed.">        if (!isValidDefault(schema.getElementType(), element))</span>
+<span class="nc" id="L1568">          return false;</span>
+<span class="nc" id="L1569">      return true;</span>
+    case MAP:
+<span class="nc bnc" id="L1571" title="All 2 branches missed.">      if (!defaultValue.isObject())</span>
+<span class="nc" id="L1572">        return false;</span>
+<span class="nc bnc" id="L1573" title="All 2 branches missed.">      for (JsonNode value : defaultValue)</span>
+<span class="nc bnc" id="L1574" title="All 2 branches missed.">        if (!isValidDefault(schema.getValueType(), value))</span>
+<span class="nc" id="L1575">          return false;</span>
+<span class="nc" id="L1576">      return true;</span>
+    case UNION: // union default: first branch
+<span class="nc" id="L1578">      return isValidDefault(schema.getTypes().get(0), defaultValue);</span>
+    case RECORD:
+<span class="nc bnc" id="L1580" title="All 2 branches missed.">      if (!defaultValue.isObject())</span>
+<span class="nc" id="L1581">        return false;</span>
+<span class="nc bnc" id="L1582" title="All 2 branches missed.">      for (Field field : schema.getFields())</span>
+<span class="nc bnc" id="L1583" title="All 2 branches missed.">        if (!isValidDefault(field.schema(),</span>
+<span class="nc bnc" id="L1584" title="All 2 branches missed.">            defaultValue.has(field.name()) ? defaultValue.get(field.name()) : field.defaultValue()))</span>
+<span class="nc" id="L1585">          return false;</span>
+<span class="nc" id="L1586">      return true;</span>
+    default:
+<span class="nc" id="L1588">      return false;</span>
+    }
+  }
+
+  /** @see #parse(String) */
+  static Schema parse(JsonNode schema, Names names) {
+<span class="pc bpc" id="L1594" title="1 of 2 branches missed.">    if (schema == null) {</span>
+<span class="nc" id="L1595">      throw new SchemaParseException(&quot;Cannot parse &lt;null&gt; schema&quot;);</span>
+    }
+<span class="fc bfc" id="L1597" title="All 2 branches covered.">    if (schema.isTextual()) { // name</span>
+<span class="fc" id="L1598">      Schema result = names.get(schema.textValue());</span>
+<span class="pc bpc" id="L1599" title="1 of 2 branches missed.">      if (result == null)</span>
+<span class="nc" id="L1600">        throw new SchemaParseException(&quot;Undefined name: &quot; + schema);</span>
+<span class="fc" id="L1601">      return result;</span>
+<span class="fc bfc" id="L1602" title="All 2 branches covered.">    } else if (schema.isObject()) {</span>
+      Schema result;
+<span class="fc" id="L1604">      String type = getRequiredText(schema, &quot;type&quot;, &quot;No type&quot;);</span>
+<span class="fc" id="L1605">      Name name = null;</span>
+<span class="fc" id="L1606">      String savedSpace = names.space();</span>
+<span class="fc" id="L1607">      String doc = null;</span>
+<span class="pc bpc" id="L1608" title="1 of 8 branches missed.">      if (type.equals(&quot;record&quot;) || type.equals(&quot;error&quot;) || type.equals(&quot;enum&quot;) || type.equals(&quot;fixed&quot;)) {</span>
+<span class="fc" id="L1609">        String space = getOptionalText(schema, &quot;namespace&quot;);</span>
+<span class="fc" id="L1610">        doc = getOptionalText(schema, &quot;doc&quot;);</span>
+<span class="fc bfc" id="L1611" title="All 2 branches covered.">        if (space == null)</span>
+<span class="fc" id="L1612">          space = names.space();</span>
+<span class="fc" id="L1613">        name = new Name(getRequiredText(schema, &quot;name&quot;, &quot;No name in schema&quot;), space);</span>
+<span class="fc" id="L1614">        names.space(name.space); // set default namespace</span>
+      }
+<span class="pc bpc" id="L1616" title="1 of 2 branches missed.">      if (PRIMITIVES.containsKey(type)) { // primitive</span>
+<span class="nc" id="L1617">        result = create(PRIMITIVES.get(type));</span>
+<span class="pc bpc" id="L1618" title="1 of 4 branches missed.">      } else if (type.equals(&quot;record&quot;) || type.equals(&quot;error&quot;)) { // record</span>
+<span class="fc" id="L1619">        List&lt;Field&gt; fields = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1620">        result = new RecordSchema(name, doc, type.equals(&quot;error&quot;));</span>
+<span class="pc bpc" id="L1621" title="1 of 2 branches missed.">        if (name != null)</span>
+<span class="fc" id="L1622">          names.add(result);</span>
+<span class="fc" id="L1623">        JsonNode fieldsNode = schema.get(&quot;fields&quot;);</span>
+<span class="pc bpc" id="L1624" title="2 of 4 branches missed.">        if (fieldsNode == null || !fieldsNode.isArray())</span>
+<span class="nc" id="L1625">          throw new SchemaParseException(&quot;Record has no fields: &quot; + schema);</span>
+<span class="fc bfc" id="L1626" title="All 2 branches covered.">        for (JsonNode field : fieldsNode) {</span>
+<span class="fc" id="L1627">          String fieldName = getRequiredText(field, &quot;name&quot;, &quot;No field name&quot;);</span>
+<span class="fc" id="L1628">          String fieldDoc = getOptionalText(field, &quot;doc&quot;);</span>
+<span class="fc" id="L1629">          JsonNode fieldTypeNode = field.get(&quot;type&quot;);</span>
+<span class="pc bpc" id="L1630" title="1 of 2 branches missed.">          if (fieldTypeNode == null)</span>
+<span class="nc" id="L1631">            throw new SchemaParseException(&quot;No field type: &quot; + field);</span>
+<span class="pc bpc" id="L1632" title="1 of 4 branches missed.">          if (fieldTypeNode.isTextual() &amp;&amp; names.get(fieldTypeNode.textValue()) == null)</span>
+<span class="nc" id="L1633">            throw new SchemaParseException(fieldTypeNode + &quot; is not a defined name.&quot; + &quot; The type of the \&quot;&quot; + fieldName</span>
+                + &quot;\&quot; field must be&quot; + &quot; a defined name or a {\&quot;type\&quot;: ...} expression.&quot;);
+<span class="fc" id="L1635">          Schema fieldSchema = parse(fieldTypeNode, names);</span>
+<span class="fc" id="L1636">          Field.Order order = Field.Order.ASCENDING;</span>
+<span class="fc" id="L1637">          JsonNode orderNode = field.get(&quot;order&quot;);</span>
+<span class="pc bpc" id="L1638" title="1 of 2 branches missed.">          if (orderNode != null)</span>
+<span class="nc" id="L1639">            order = Field.Order.valueOf(orderNode.textValue().toUpperCase(Locale.ENGLISH));</span>
+<span class="fc" id="L1640">          JsonNode defaultValue = field.get(&quot;default&quot;);</span>
+<span class="fc bfc" id="L1641" title="All 2 branches covered.">          if (defaultValue != null</span>
+<span class="pc bpc" id="L1642" title="2 of 4 branches missed.">              &amp;&amp; (Type.FLOAT.equals(fieldSchema.getType()) || Type.DOUBLE.equals(fieldSchema.getType()))</span>
+<span class="nc bnc" id="L1643" title="All 2 branches missed.">              &amp;&amp; defaultValue.isTextual())</span>
+<span class="nc" id="L1644">            defaultValue = new DoubleNode(Double.valueOf(defaultValue.textValue()));</span>
+<span class="fc" id="L1645">          Field f = new Field(fieldName, fieldSchema, fieldDoc, defaultValue, true, order);</span>
+<span class="fc" id="L1646">          Iterator&lt;String&gt; i = field.fieldNames();</span>
+<span class="fc bfc" id="L1647" title="All 2 branches covered.">          while (i.hasNext()) { // add field props</span>
+<span class="fc" id="L1648">            String prop = i.next();</span>
+<span class="pc bpc" id="L1649" title="1 of 2 branches missed.">            if (!FIELD_RESERVED.contains(prop))</span>
+<span class="nc" id="L1650">              f.addProp(prop, field.get(prop));</span>
+<span class="fc" id="L1651">          }</span>
+<span class="fc" id="L1652">          f.aliases = parseAliases(field);</span>
+<span class="fc" id="L1653">          fields.add(f);</span>
+<span class="fc" id="L1654">        }</span>
+<span class="fc" id="L1655">        result.setFields(fields);</span>
+<span class="fc bfc" id="L1656" title="All 2 branches covered.">      } else if (type.equals(&quot;enum&quot;)) { // enum</span>
+<span class="fc" id="L1657">        JsonNode symbolsNode = schema.get(&quot;symbols&quot;);</span>
+<span class="pc bpc" id="L1658" title="2 of 4 branches missed.">        if (symbolsNode == null || !symbolsNode.isArray())</span>
+<span class="nc" id="L1659">          throw new SchemaParseException(&quot;Enum has no symbols: &quot; + schema);</span>
+<span class="fc" id="L1660">        LockableArrayList&lt;String&gt; symbols = new LockableArrayList&lt;&gt;(symbolsNode.size());</span>
+<span class="fc bfc" id="L1661" title="All 2 branches covered.">        for (JsonNode n : symbolsNode)</span>
+<span class="fc" id="L1662">          symbols.add(n.textValue());</span>
+<span class="fc" id="L1663">        JsonNode enumDefault = schema.get(&quot;default&quot;);</span>
+<span class="fc" id="L1664">        String defaultSymbol = null;</span>
+<span class="pc bpc" id="L1665" title="1 of 2 branches missed.">        if (enumDefault != null)</span>
+<span class="nc" id="L1666">          defaultSymbol = enumDefault.textValue();</span>
+<span class="fc" id="L1667">        result = new EnumSchema(name, doc, symbols, defaultSymbol);</span>
+<span class="pc bpc" id="L1668" title="1 of 2 branches missed.">        if (name != null)</span>
+<span class="fc" id="L1669">          names.add(result);</span>
+<span class="fc bfc" id="L1670" title="All 2 branches covered.">      } else if (type.equals(&quot;array&quot;)) { // array</span>
+<span class="fc" id="L1671">        JsonNode itemsNode = schema.get(&quot;items&quot;);</span>
+<span class="pc bpc" id="L1672" title="1 of 2 branches missed.">        if (itemsNode == null)</span>
+<span class="nc" id="L1673">          throw new SchemaParseException(&quot;Array has no items type: &quot; + schema);</span>
+<span class="fc" id="L1674">        result = new ArraySchema(parse(itemsNode, names));</span>
+<span class="fc bfc" id="L1675" title="All 2 branches covered.">      } else if (type.equals(&quot;map&quot;)) { // map</span>
+<span class="fc" id="L1676">        JsonNode valuesNode = schema.get(&quot;values&quot;);</span>
+<span class="pc bpc" id="L1677" title="1 of 2 branches missed.">        if (valuesNode == null)</span>
+<span class="nc" id="L1678">          throw new SchemaParseException(&quot;Map has no values type: &quot; + schema);</span>
+<span class="fc" id="L1679">        result = new MapSchema(parse(valuesNode, names));</span>
+<span class="pc bpc" id="L1680" title="1 of 2 branches missed.">      } else if (type.equals(&quot;fixed&quot;)) { // fixed</span>
+<span class="fc" id="L1681">        JsonNode sizeNode = schema.get(&quot;size&quot;);</span>
+<span class="pc bpc" id="L1682" title="2 of 4 branches missed.">        if (sizeNode == null || !sizeNode.isInt())</span>
+<span class="nc" id="L1683">          throw new SchemaParseException(&quot;Invalid or no size: &quot; + schema);</span>
+<span class="fc" id="L1684">        result = new FixedSchema(name, doc, sizeNode.intValue());</span>
+<span class="pc bpc" id="L1685" title="1 of 2 branches missed.">        if (name != null)</span>
+<span class="fc" id="L1686">          names.add(result);</span>
+<span class="fc" id="L1687">      } else { // For unions with self reference</span>
+<span class="nc" id="L1688">        Name nameFromType = new Name(type, names.space);</span>
+<span class="nc bnc" id="L1689" title="All 2 branches missed.">        if (names.containsKey(nameFromType)) {</span>
+<span class="nc" id="L1690">          return names.get(nameFromType);</span>
+        }
+<span class="nc" id="L1692">        throw new SchemaParseException(&quot;Type not supported: &quot; + type);</span>
+      }
+<span class="fc" id="L1694">      Iterator&lt;String&gt; i = schema.fieldNames();</span>
+
+<span class="fc" id="L1696">      Set reserved = SCHEMA_RESERVED;</span>
+<span class="fc bfc" id="L1697" title="All 2 branches covered.">      if (type.equals(&quot;enum&quot;)) {</span>
+<span class="fc" id="L1698">        reserved = ENUM_RESERVED;</span>
+      }
+<span class="fc bfc" id="L1700" title="All 2 branches covered.">      while (i.hasNext()) { // add properties</span>
+<span class="fc" id="L1701">        String prop = i.next();</span>
+<span class="pc bpc" id="L1702" title="1 of 2 branches missed.">        if (!reserved.contains(prop)) // ignore reserved</span>
+<span class="nc" id="L1703">          result.addProp(prop, schema.get(prop));</span>
+<span class="fc" id="L1704">      }</span>
+      // parse logical type if present
+<span class="fc" id="L1706">      result.logicalType = LogicalTypes.fromSchemaIgnoreInvalid(result);</span>
+<span class="fc" id="L1707">      names.space(savedSpace); // restore space</span>
+<span class="fc bfc" id="L1708" title="All 2 branches covered.">      if (result instanceof NamedSchema) {</span>
+<span class="fc" id="L1709">        Set&lt;String&gt; aliases = parseAliases(schema);</span>
+<span class="fc bfc" id="L1710" title="All 2 branches covered.">        if (aliases != null) // add aliases</span>
+<span class="fc bfc" id="L1711" title="All 2 branches covered.">          for (String alias : aliases)</span>
+<span class="fc" id="L1712">            result.addAlias(alias);</span>
+      }
+<span class="fc" id="L1714">      return result;</span>
+<span class="pc bpc" id="L1715" title="1 of 2 branches missed.">    } else if (schema.isArray()) { // union</span>
+<span class="fc" id="L1716">      LockableArrayList&lt;Schema&gt; types = new LockableArrayList&lt;&gt;(schema.size());</span>
+<span class="fc bfc" id="L1717" title="All 2 branches covered.">      for (JsonNode typeNode : schema)</span>
+<span class="fc" id="L1718">        types.add(parse(typeNode, names));</span>
+<span class="fc" id="L1719">      return new UnionSchema(types);</span>
+    } else {
+<span class="nc" id="L1721">      throw new SchemaParseException(&quot;Schema not yet supported: &quot; + schema);</span>
+    }
+  }
+
+  static Set&lt;String&gt; parseAliases(JsonNode node) {
+<span class="fc" id="L1726">    JsonNode aliasesNode = node.get(&quot;aliases&quot;);</span>
+<span class="fc bfc" id="L1727" title="All 2 branches covered.">    if (aliasesNode == null)</span>
+<span class="fc" id="L1728">      return null;</span>
+<span class="pc bpc" id="L1729" title="1 of 2 branches missed.">    if (!aliasesNode.isArray())</span>
+<span class="nc" id="L1730">      throw new SchemaParseException(&quot;aliases not an array: &quot; + node);</span>
+<span class="fc" id="L1731">    Set&lt;String&gt; aliases = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L1732" title="All 2 branches covered.">    for (JsonNode aliasNode : aliasesNode) {</span>
+<span class="pc bpc" id="L1733" title="1 of 2 branches missed.">      if (!aliasNode.isTextual())</span>
+<span class="nc" id="L1734">        throw new SchemaParseException(&quot;alias not a string: &quot; + aliasNode);</span>
+<span class="fc" id="L1735">      aliases.add(aliasNode.textValue());</span>
+<span class="fc" id="L1736">    }</span>
+<span class="fc" id="L1737">    return aliases;</span>
+  }
+
+  /**
+   * Extracts text value associated to key from the container JsonNode, and throws
+   * {@link SchemaParseException} if it doesn't exist.
+   *
+   * @param container Container where to find key.
+   * @param key       Key to look for in container.
+   * @param error     String to prepend to the SchemaParseException.
+   */
+  private static String getRequiredText(JsonNode container, String key, String error) {
+<span class="fc" id="L1749">    String out = getOptionalText(container, key);</span>
+<span class="pc bpc" id="L1750" title="1 of 2 branches missed.">    if (null == out) {</span>
+<span class="nc" id="L1751">      throw new SchemaParseException(error + &quot;: &quot; + container);</span>
+    }
+<span class="fc" id="L1753">    return out;</span>
+  }
+
+  /** Extracts text value associated to key from the container JsonNode. */
+  private static String getOptionalText(JsonNode container, String key) {
+<span class="fc" id="L1758">    JsonNode jsonNode = container.get(key);</span>
+<span class="fc bfc" id="L1759" title="All 2 branches covered.">    return jsonNode != null ? jsonNode.textValue() : null;</span>
+  }
+
+  static JsonNode parseJson(String s) {
+    try {
+<span class="nc" id="L1764">      return MAPPER.readTree(FACTORY.createParser(s));</span>
+<span class="nc" id="L1765">    } catch (IOException e) {</span>
+<span class="nc" id="L1766">      throw new RuntimeException(e);</span>
+    }
+  }
+
+  /**
+   * Parses the specified json string to an object.
+   */
+  public static Object parseJsonToObject(String s) {
+<span class="nc" id="L1774">    return JacksonUtils.toObject(parseJson(s));</span>
+  }
+
+  /**
+   * Rewrite a writer's schema using the aliases from a reader's schema. This
+   * permits reading records, enums and fixed schemas whose names have changed,
+   * and records whose field names have changed. The returned schema always
+   * contains the same data elements in the same order, but with possibly
+   * different names.
+   */
+  public static Schema applyAliases(Schema writer, Schema reader) {
+<span class="nc bnc" id="L1785" title="All 2 branches missed.">    if (writer.equals(reader))</span>
+<span class="nc" id="L1786">      return writer; // same schema</span>
+
+    // create indexes of names
+<span class="nc" id="L1789">    Map&lt;Schema, Schema&gt; seen = new IdentityHashMap&lt;&gt;(1);</span>
+<span class="nc" id="L1790">    Map&lt;Name, Name&gt; aliases = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L1791">    Map&lt;Name, Map&lt;String, String&gt;&gt; fieldAliases = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L1792">    getAliases(reader, seen, aliases, fieldAliases);</span>
+
+<span class="nc bnc" id="L1794" title="All 4 branches missed.">    if (aliases.size() == 0 &amp;&amp; fieldAliases.size() == 0)</span>
+<span class="nc" id="L1795">      return writer; // no aliases</span>
+
+<span class="nc" id="L1797">    seen.clear();</span>
+<span class="nc" id="L1798">    return applyAliases(writer, seen, aliases, fieldAliases);</span>
+  }
+
+  private static Schema applyAliases(Schema s, Map&lt;Schema, Schema&gt; seen, Map&lt;Name, Name&gt; aliases,
+      Map&lt;Name, Map&lt;String, String&gt;&gt; fieldAliases) {
+
+<span class="nc bnc" id="L1804" title="All 2 branches missed.">    Name name = s instanceof NamedSchema ? ((NamedSchema) s).name : null;</span>
+<span class="nc" id="L1805">    Schema result = s;</span>
+<span class="nc bnc" id="L1806" title="All 7 branches missed.">    switch (s.getType()) {</span>
+    case RECORD:
+<span class="nc bnc" id="L1808" title="All 2 branches missed.">      if (seen.containsKey(s))</span>
+<span class="nc" id="L1809">        return seen.get(s); // break loops</span>
+<span class="nc bnc" id="L1810" title="All 2 branches missed.">      if (aliases.containsKey(name))</span>
+<span class="nc" id="L1811">        name = aliases.get(name);</span>
+<span class="nc" id="L1812">      result = Schema.createRecord(name.full, s.getDoc(), null, s.isError());</span>
+<span class="nc" id="L1813">      seen.put(s, result);</span>
+<span class="nc" id="L1814">      List&lt;Field&gt; newFields = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1815" title="All 2 branches missed.">      for (Field f : s.getFields()) {</span>
+<span class="nc" id="L1816">        Schema fSchema = applyAliases(f.schema, seen, aliases, fieldAliases);</span>
+<span class="nc" id="L1817">        String fName = getFieldAlias(name, f.name, fieldAliases);</span>
+<span class="nc" id="L1818">        Field newF = new Field(fName, fSchema, f.doc, f.defaultValue, true, f.order);</span>
+<span class="nc" id="L1819">        newF.putAll(f); // copy props</span>
+<span class="nc" id="L1820">        newFields.add(newF);</span>
+<span class="nc" id="L1821">      }</span>
+<span class="nc" id="L1822">      result.setFields(newFields);</span>
+<span class="nc" id="L1823">      break;</span>
+    case ENUM:
+<span class="nc bnc" id="L1825" title="All 2 branches missed.">      if (aliases.containsKey(name))</span>
+<span class="nc" id="L1826">        result = Schema.createEnum(aliases.get(name).full, s.getDoc(), null, s.getEnumSymbols(), s.getEnumDefault());</span>
+      break;
+    case ARRAY:
+<span class="nc" id="L1829">      Schema e = applyAliases(s.getElementType(), seen, aliases, fieldAliases);</span>
+<span class="nc bnc" id="L1830" title="All 2 branches missed.">      if (!e.equals(s.getElementType()))</span>
+<span class="nc" id="L1831">        result = Schema.createArray(e);</span>
+      break;
+    case MAP:
+<span class="nc" id="L1834">      Schema v = applyAliases(s.getValueType(), seen, aliases, fieldAliases);</span>
+<span class="nc bnc" id="L1835" title="All 2 branches missed.">      if (!v.equals(s.getValueType()))</span>
+<span class="nc" id="L1836">        result = Schema.createMap(v);</span>
+      break;
+    case UNION:
+<span class="nc" id="L1839">      List&lt;Schema&gt; types = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1840" title="All 2 branches missed.">      for (Schema branch : s.getTypes())</span>
+<span class="nc" id="L1841">        types.add(applyAliases(branch, seen, aliases, fieldAliases));</span>
+<span class="nc" id="L1842">      result = Schema.createUnion(types);</span>
+<span class="nc" id="L1843">      break;</span>
+    case FIXED:
+<span class="nc bnc" id="L1845" title="All 2 branches missed.">      if (aliases.containsKey(name))</span>
+<span class="nc" id="L1846">        result = Schema.createFixed(aliases.get(name).full, s.getDoc(), null, s.getFixedSize());</span>
+      break;
+    default:
+      // NO-OP
+    }
+<span class="nc bnc" id="L1851" title="All 2 branches missed.">    if (!result.equals(s))</span>
+<span class="nc" id="L1852">      result.putAll(s); // copy props</span>
+<span class="nc" id="L1853">    return result;</span>
+  }
+
+  private static void getAliases(Schema schema, Map&lt;Schema, Schema&gt; seen, Map&lt;Name, Name&gt; aliases,
+      Map&lt;Name, Map&lt;String, String&gt;&gt; fieldAliases) {
+<span class="nc bnc" id="L1858" title="All 2 branches missed.">    if (schema instanceof NamedSchema) {</span>
+<span class="nc" id="L1859">      NamedSchema namedSchema = (NamedSchema) schema;</span>
+<span class="nc bnc" id="L1860" title="All 2 branches missed.">      if (namedSchema.aliases != null)</span>
+<span class="nc bnc" id="L1861" title="All 2 branches missed.">        for (Name alias : namedSchema.aliases)</span>
+<span class="nc" id="L1862">          aliases.put(alias, namedSchema.name);</span>
+    }
+<span class="nc bnc" id="L1864" title="All 5 branches missed.">    switch (schema.getType()) {</span>
+    case RECORD:
+<span class="nc bnc" id="L1866" title="All 2 branches missed.">      if (seen.containsKey(schema))</span>
+<span class="nc" id="L1867">        return; // break loops</span>
+<span class="nc" id="L1868">      seen.put(schema, schema);</span>
+<span class="nc" id="L1869">      RecordSchema record = (RecordSchema) schema;</span>
+<span class="nc bnc" id="L1870" title="All 2 branches missed.">      for (Field field : schema.getFields()) {</span>
+<span class="nc bnc" id="L1871" title="All 2 branches missed.">        if (field.aliases != null)</span>
+<span class="nc bnc" id="L1872" title="All 2 branches missed.">          for (String fieldAlias : field.aliases) {</span>
+<span class="nc" id="L1873">            Map&lt;String, String&gt; recordAliases = fieldAliases.computeIfAbsent(record.name, k -&gt; new HashMap&lt;&gt;());</span>
+<span class="nc" id="L1874">            recordAliases.put(fieldAlias, field.name);</span>
+<span class="nc" id="L1875">          }</span>
+<span class="nc" id="L1876">        getAliases(field.schema, seen, aliases, fieldAliases);</span>
+<span class="nc" id="L1877">      }</span>
+<span class="nc bnc" id="L1878" title="All 4 branches missed.">      if (record.aliases != null &amp;&amp; fieldAliases.containsKey(record.name))</span>
+<span class="nc bnc" id="L1879" title="All 2 branches missed.">        for (Name recordAlias : record.aliases)</span>
+<span class="nc" id="L1880">          fieldAliases.put(recordAlias, fieldAliases.get(record.name));</span>
+      break;
+    case ARRAY:
+<span class="nc" id="L1883">      getAliases(schema.getElementType(), seen, aliases, fieldAliases);</span>
+<span class="nc" id="L1884">      break;</span>
+    case MAP:
+<span class="nc" id="L1886">      getAliases(schema.getValueType(), seen, aliases, fieldAliases);</span>
+<span class="nc" id="L1887">      break;</span>
+    case UNION:
+<span class="nc bnc" id="L1889" title="All 2 branches missed.">      for (Schema s : schema.getTypes())</span>
+<span class="nc" id="L1890">        getAliases(s, seen, aliases, fieldAliases);</span>
+      break;
+    }
+<span class="nc" id="L1893">  }</span>
+
+  private static String getFieldAlias(Name record, String field, Map&lt;Name, Map&lt;String, String&gt;&gt; fieldAliases) {
+<span class="nc" id="L1896">    Map&lt;String, String&gt; recordAliases = fieldAliases.get(record);</span>
+<span class="nc bnc" id="L1897" title="All 2 branches missed.">    if (recordAliases == null)</span>
+<span class="nc" id="L1898">      return field;</span>
+<span class="nc" id="L1899">    String alias = recordAliases.get(field);</span>
+<span class="nc bnc" id="L1900" title="All 2 branches missed.">    if (alias == null)</span>
+<span class="nc" id="L1901">      return field;</span>
+<span class="nc" id="L1902">    return alias;</span>
+  }
+
+  /**
+   * No change is permitted on LockableArrayList once lock() has been called on
+   * it.
+   *
+   * @param &lt;E&gt;
+   */
+
+  /*
+   * This class keeps a boolean variable &lt;tt&gt;locked&lt;/tt&gt; which is set to
+   * &lt;tt&gt;true&lt;/tt&gt; in the lock() method. It's legal to call lock() any number of
+   * times. Any lock() other than the first one is a no-op.
+   *
+   * This class throws &lt;tt&gt;IllegalStateException&lt;/tt&gt; if a mutating operation is
+   * performed after being locked. Since modifications through iterator also use
+   * the list's mutating operations, this effectively blocks all modifications.
+   */
+  static class LockableArrayList&lt;E&gt; extends ArrayList&lt;E&gt; {
+    private static final long serialVersionUID = 1L;
+<span class="pc" id="L1923">    private boolean locked = false;</span>
+
+<span class="fc" id="L1925">    public LockableArrayList() {</span>
+<span class="fc" id="L1926">    }</span>
+
+    public LockableArrayList(int size) {
+<span class="fc" id="L1929">      super(size);</span>
+<span class="fc" id="L1930">    }</span>
+
+    public LockableArrayList(List&lt;E&gt; types) {
+<span class="nc" id="L1933">      super(types);</span>
+<span class="nc" id="L1934">    }</span>
+
+    public LockableArrayList(E... types) {
+<span class="nc" id="L1937">      super(types.length);</span>
+<span class="nc" id="L1938">      Collections.addAll(this, types);</span>
+<span class="nc" id="L1939">    }</span>
+
+    public List&lt;E&gt; lock() {
+<span class="fc" id="L1942">      locked = true;</span>
+<span class="fc" id="L1943">      return this;</span>
+    }
+
+    private void ensureUnlocked() {
+<span class="pc bpc" id="L1947" title="1 of 2 branches missed.">      if (locked) {</span>
+<span class="nc" id="L1948">        throw new IllegalStateException();</span>
+      }
+<span class="fc" id="L1950">    }</span>
+
+    @Override
+    public boolean add(E e) {
+<span class="fc" id="L1954">      ensureUnlocked();</span>
+<span class="fc" id="L1955">      return super.add(e);</span>
+    }
+
+    @Override
+    public boolean remove(Object o) {
+<span class="nc" id="L1960">      ensureUnlocked();</span>
+<span class="nc" id="L1961">      return super.remove(o);</span>
+    }
+
+    @Override
+    public E remove(int index) {
+<span class="nc" id="L1966">      ensureUnlocked();</span>
+<span class="nc" id="L1967">      return super.remove(index);</span>
+    }
+
+    @Override
+    public boolean addAll(Collection&lt;? extends E&gt; c) {
+<span class="nc" id="L1972">      ensureUnlocked();</span>
+<span class="nc" id="L1973">      return super.addAll(c);</span>
+    }
+
+    @Override
+    public boolean addAll(int index, Collection&lt;? extends E&gt; c) {
+<span class="nc" id="L1978">      ensureUnlocked();</span>
+<span class="nc" id="L1979">      return super.addAll(index, c);</span>
+    }
+
+    @Override
+    public boolean removeAll(Collection&lt;?&gt; c) {
+<span class="nc" id="L1984">      ensureUnlocked();</span>
+<span class="nc" id="L1985">      return super.removeAll(c);</span>
+    }
+
+    @Override
+    public boolean retainAll(Collection&lt;?&gt; c) {
+<span class="nc" id="L1990">      ensureUnlocked();</span>
+<span class="nc" id="L1991">      return super.retainAll(c);</span>
+    }
+
+    @Override
+    public void clear() {
+<span class="nc" id="L1996">      ensureUnlocked();</span>
+<span class="nc" id="L1997">      super.clear();</span>
+<span class="nc" id="L1998">    }</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

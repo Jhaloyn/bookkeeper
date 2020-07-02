@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DecoderFactory.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">DecoderFactory.java</span></div><h1>DecoderFactory.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io;
+
+import java.io.IOException;
+import java.io.InputStream;
+
+import org.apache.avro.Schema;
+
+/**
+ * A factory for creating and configuring {@link Decoder}s.
+ * &lt;p/&gt;
+ * Factories are thread-safe, and are generally cached by applications for
+ * performance reasons. Multiple instances are only required if multiple
+ * concurrent configurations are needed.
+ *
+ * @see Decoder
+ */
+
+public class DecoderFactory {
+<span class="nc" id="L36">  private static final DecoderFactory DEFAULT_FACTORY = new DefaultDecoderFactory();</span>
+  static final int DEFAULT_BUFFER_SIZE = 8192;
+
+<span class="nc" id="L39">  int binaryDecoderBufferSize = DEFAULT_BUFFER_SIZE;</span>
+
+  /** Constructor for factory instances */
+  public DecoderFactory() {
+<span class="nc" id="L43">    super();</span>
+<span class="nc" id="L44">  }</span>
+
+  /**
+   * @deprecated use the equivalent {@link #get()} instead
+   */
+  @Deprecated
+  public static DecoderFactory defaultFactory() {
+<span class="nc" id="L51">    return get();</span>
+  }
+
+  /**
+   * Returns an immutable static DecoderFactory configured with default settings
+   * All mutating methods throw IllegalArgumentExceptions. All creator methods
+   * create objects with default settings.
+   */
+  public static DecoderFactory get() {
+<span class="nc" id="L60">    return DEFAULT_FACTORY;</span>
+  }
+
+  /**
+   * Configures this factory to use the specified buffer size when creating
+   * Decoder instances that buffer their input. The default buffer size is 8192
+   * bytes.
+   *
+   * @param size The preferred buffer size. Valid values are in the range [32,
+   *             16*1024*1024]. Values outside this range are rounded to the
+   *             nearest value in the range. Values less than 512 or greater than
+   *             1024*1024 are not recommended.
+   * @return This factory, to enable method chaining:
+   * 
+   *         &lt;pre&gt;
+   *         DecoderFactory myFactory = new DecoderFactory().useBinaryDecoderBufferSize(4096);
+   *         &lt;/pre&gt;
+   */
+  public DecoderFactory configureDecoderBufferSize(int size) {
+<span class="nc bnc" id="L79" title="All 2 branches missed.">    if (size &lt; 32)</span>
+<span class="nc" id="L80">      size = 32;</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    if (size &gt; 16 * 1024 * 1024)</span>
+<span class="nc" id="L82">      size = 16 * 1024 * 1024;</span>
+<span class="nc" id="L83">    this.binaryDecoderBufferSize = size;</span>
+<span class="nc" id="L84">    return this;</span>
+  }
+
+  /**
+   * Returns this factory's configured preferred buffer size. Used when creating
+   * Decoder instances that buffer. See {@link #configureDecoderBufferSize}
+   * 
+   * @return The preferred buffer size, in bytes.
+   */
+  public int getConfiguredBufferSize() {
+<span class="nc" id="L94">    return this.binaryDecoderBufferSize;</span>
+  }
+
+  /**
+   * @deprecated use the equivalent
+   *             {@link #binaryDecoder(InputStream, BinaryDecoder)} instead
+   */
+  @Deprecated
+  public BinaryDecoder createBinaryDecoder(InputStream in, BinaryDecoder reuse) {
+<span class="nc" id="L103">    return binaryDecoder(in, reuse);</span>
+  }
+
+  /**
+   * Creates or reinitializes a {@link BinaryDecoder} with the input stream
+   * provided as the source of data. If &lt;i&gt;reuse&lt;/i&gt; is provided, it will be
+   * reinitialized to the given input stream.
+   * &lt;p/&gt;
+   * {@link BinaryDecoder} instances returned by this method buffer their input,
+   * reading up to {@link #getConfiguredBufferSize()} bytes past the minimum
+   * required to satisfy read requests in order to achieve better performance. If
+   * the buffering is not desired, use
+   * {@link #directBinaryDecoder(InputStream, BinaryDecoder)}.
+   * &lt;p/&gt;
+   * {@link BinaryDecoder#inputStream()} provides a view on the data that is
+   * buffer-aware, for users that need to interleave access to data with the
+   * Decoder API.
+   *
+   * @param in    The InputStream to initialize to
+   * @param reuse The BinaryDecoder to &lt;i&gt;attempt&lt;/i&gt; to reuse given the factory
+   *              configuration. A BinaryDecoder implementation may not be
+   *              compatible with reuse, causing a new instance to be returned. If
+   *              null, a new instance is returned.
+   * @return A BinaryDecoder that uses &lt;i&gt;in&lt;/i&gt; as its source of data. If
+   *         &lt;i&gt;reuse&lt;/i&gt; is null, this will be a new instance. If &lt;i&gt;reuse&lt;/i&gt; is
+   *         not null, then it may be reinitialized if compatible, otherwise a new
+   *         instance will be returned.
+   * @see BinaryDecoder
+   * @see Decoder
+   */
+  public BinaryDecoder binaryDecoder(InputStream in, BinaryDecoder reuse) {
+<span class="nc bnc" id="L134" title="All 4 branches missed.">    if (null == reuse || !reuse.getClass().equals(BinaryDecoder.class)) {</span>
+<span class="nc" id="L135">      return new BinaryDecoder(in, binaryDecoderBufferSize);</span>
+    } else {
+<span class="nc" id="L137">      return reuse.configure(in, binaryDecoderBufferSize);</span>
+    }
+  }
+
+  /**
+   * Creates or reinitializes a {@link BinaryDecoder} with the input stream
+   * provided as the source of data. If &lt;i&gt;reuse&lt;/i&gt; is provided, it will be
+   * reinitialized to the given input stream.
+   * &lt;p/&gt;
+   * {@link BinaryDecoder} instances returned by this method do not buffer their
+   * input. In most cases a buffering BinaryDecoder is sufficient in combination
+   * with {@link BinaryDecoder#inputStream()} which provides a buffer-aware view
+   * on the data.
+   * &lt;p/&gt;
+   * A &quot;direct&quot; BinaryDecoder does not read ahead from an InputStream or other
+   * data source that cannot be rewound. From the perspective of a client, a
+   * &quot;direct&quot; decoder must never read beyond the minimum necessary bytes to
+   * service a {@link BinaryDecoder} API read request.
+   * &lt;p/&gt;
+   * In the case that the improved performance of a buffering implementation does
+   * not outweigh the inconvenience of its buffering semantics, a &quot;direct&quot; decoder
+   * can be used.
+   * 
+   * @param in    The InputStream to initialize to
+   * @param reuse The BinaryDecoder to &lt;i&gt;attempt&lt;/i&gt; to reuse given the factory
+   *              configuration. A BinaryDecoder implementation may not be
+   *              compatible with reuse, causing a new instance to be returned. If
+   *              null, a new instance is returned.
+   * @return A BinaryDecoder that uses &lt;i&gt;in&lt;/i&gt; as its source of data. If
+   *         &lt;i&gt;reuse&lt;/i&gt; is null, this will be a new instance. If &lt;i&gt;reuse&lt;/i&gt; is
+   *         not null, then it may be reinitialized if compatible, otherwise a new
+   *         instance will be returned.
+   * @see DirectBinaryDecoder
+   * @see Decoder
+   */
+  public BinaryDecoder directBinaryDecoder(InputStream in, BinaryDecoder reuse) {
+<span class="nc bnc" id="L173" title="All 4 branches missed.">    if (null == reuse || !reuse.getClass().equals(DirectBinaryDecoder.class)) {</span>
+<span class="nc" id="L174">      return new DirectBinaryDecoder(in);</span>
+    } else {
+<span class="nc" id="L176">      return ((DirectBinaryDecoder) reuse).configure(in);</span>
+    }
+  }
+
+  /**
+   * @deprecated use {@link #binaryDecoder(byte[], int, int, BinaryDecoder)}
+   *             instead
+   */
+  @Deprecated
+  public BinaryDecoder createBinaryDecoder(byte[] bytes, int offset, int length, BinaryDecoder reuse) {
+<span class="nc bnc" id="L186" title="All 4 branches missed.">    if (null == reuse || !reuse.getClass().equals(BinaryDecoder.class)) {</span>
+<span class="nc" id="L187">      return new BinaryDecoder(bytes, offset, length);</span>
+    } else {
+<span class="nc" id="L189">      return reuse.configure(bytes, offset, length);</span>
+    }
+  }
+
+  /**
+   * Creates or reinitializes a {@link BinaryDecoder} with the byte array provided
+   * as the source of data. If &lt;i&gt;reuse&lt;/i&gt; is provided, it will attempt to
+   * reinitialize &lt;i&gt;reuse&lt;/i&gt; to the new byte array. This instance will use the
+   * provided byte array as its buffer.
+   * &lt;p/&gt;
+   * {@link BinaryDecoder#inputStream()} provides a view on the data that is
+   * buffer-aware and can provide a view of the data not yet read by Decoder API
+   * methods.
+   *
+   * @param bytes  The byte array to initialize to
+   * @param offset The offset to start reading from
+   * @param length The maximum number of bytes to read from the byte array
+   * @param reuse  The BinaryDecoder to attempt to reinitialize. if null a new
+   *               BinaryDecoder is created.
+   * @return A BinaryDecoder that uses &lt;i&gt;bytes&lt;/i&gt; as its source of data. If
+   *         &lt;i&gt;reuse&lt;/i&gt; is null, this will be a new instance. &lt;i&gt;reuse&lt;/i&gt; may
+   *         be reinitialized if appropriate, otherwise a new instance is
+   *         returned. Clients must not assume that &lt;i&gt;reuse&lt;/i&gt; is reinitialized
+   *         and returned.
+   */
+  public BinaryDecoder binaryDecoder(byte[] bytes, int offset, int length, BinaryDecoder reuse) {
+<span class="nc bnc" id="L215" title="All 4 branches missed.">    if (null == reuse || !reuse.getClass().equals(BinaryDecoder.class)) {</span>
+<span class="nc" id="L216">      return new BinaryDecoder(bytes, offset, length);</span>
+    } else {
+<span class="nc" id="L218">      return reuse.configure(bytes, offset, length);</span>
+    }
+  }
+
+  /** @deprecated use {@link #binaryDecoder(byte[], BinaryDecoder)} instead */
+  @Deprecated
+  public BinaryDecoder createBinaryDecoder(byte[] bytes, BinaryDecoder reuse) {
+<span class="nc" id="L225">    return binaryDecoder(bytes, 0, bytes.length, reuse);</span>
+  }
+
+  /**
+   * This method is shorthand for
+   * 
+   * &lt;pre&gt;
+   * createBinaryDecoder(bytes, 0, bytes.length, reuse);
+   * &lt;/pre&gt;
+   * 
+   * {@link #binaryDecoder(byte[], int, int, BinaryDecoder)}
+   */
+  public BinaryDecoder binaryDecoder(byte[] bytes, BinaryDecoder reuse) {
+<span class="nc" id="L238">    return binaryDecoder(bytes, 0, bytes.length, reuse);</span>
+  }
+
+  /**
+   * Creates a {@link JsonDecoder} using the InputStream provided for reading data
+   * that conforms to the Schema provided.
+   * &lt;p/&gt;
+   *
+   * @param schema The Schema for data read from this JsonEncoder. Cannot be null.
+   * @param input  The InputStream to read from. Cannot be null.
+   * @return A JsonEncoder configured with &lt;i&gt;input&lt;/i&gt; and &lt;i&gt;schema&lt;/i&gt;
+   * @throws IOException
+   */
+  public JsonDecoder jsonDecoder(Schema schema, InputStream input) throws IOException {
+<span class="nc" id="L252">    return new JsonDecoder(schema, input);</span>
+  }
+
+  /**
+   * Creates a {@link JsonDecoder} using the String provided for reading data that
+   * conforms to the Schema provided.
+   * &lt;p/&gt;
+   *
+   * @param schema The Schema for data read from this JsonEncoder. Cannot be null.
+   * @param input  The String to read from. Cannot be null.
+   * @return A JsonEncoder configured with &lt;i&gt;input&lt;/i&gt; and &lt;i&gt;schema&lt;/i&gt;
+   * @throws IOException
+   */
+  public JsonDecoder jsonDecoder(Schema schema, String input) throws IOException {
+<span class="nc" id="L266">    return new JsonDecoder(schema, input);</span>
+  }
+
+  /**
+   * Creates a {@link ValidatingDecoder} wrapping the Decoder provided. This
+   * ValidatingDecoder will ensure that operations against it conform to the
+   * schema provided.
+   *
+   * @param schema  The Schema to validate against. Cannot be null.
+   * @param wrapped The Decoder to wrap.
+   * @return A ValidatingDecoder configured with &lt;i&gt;wrapped&lt;/i&gt; and &lt;i&gt;schema&lt;/i&gt;
+   * @throws IOException
+   */
+  public ValidatingDecoder validatingDecoder(Schema schema, Decoder wrapped) throws IOException {
+<span class="nc" id="L280">    return new ValidatingDecoder(schema, wrapped);</span>
+  }
+
+  /**
+   * Creates a {@link ResolvingDecoder} wrapping the Decoder provided. This
+   * ResolvingDecoder will resolve input conforming to the &lt;i&gt;writer&lt;/i&gt; schema
+   * from the wrapped Decoder, and present it as the &lt;i&gt;reader&lt;/i&gt; schema.
+   *
+   * @param writer  The Schema that the source data is in. Cannot be null.
+   * @param reader  The Schema that the reader wishes to read the data as. Cannot
+   *                be null.
+   * @param wrapped The Decoder to wrap.
+   * @return A ResolvingDecoder configured to resolve &lt;i&gt;writer&lt;/i&gt; to
+   *         &lt;i&gt;reader&lt;/i&gt; from &lt;i&gt;in&lt;/i&gt;
+   * @throws IOException
+   */
+  public ResolvingDecoder resolvingDecoder(Schema writer, Schema reader, Decoder wrapped) throws IOException {
+<span class="nc" id="L297">    return new ResolvingDecoder(writer, reader, wrapped);</span>
+  }
+
+  private static class DefaultDecoderFactory extends DecoderFactory {
+    @Override
+    public DecoderFactory configureDecoderBufferSize(int bufferSize) {
+<span class="nc" id="L303">      throw new IllegalArgumentException(&quot;This Factory instance is Immutable&quot;);</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

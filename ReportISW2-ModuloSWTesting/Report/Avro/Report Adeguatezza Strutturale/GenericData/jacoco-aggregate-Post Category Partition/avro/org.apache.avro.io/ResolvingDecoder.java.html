@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ResolvingDecoder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.io</a> &gt; <span class="el_source">ResolvingDecoder.java</span></div><h1>ResolvingDecoder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.io;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
+
+import org.apache.avro.AvroTypeException;
+import org.apache.avro.Schema;
+import org.apache.avro.io.parsing.ResolvingGrammarGenerator;
+import org.apache.avro.io.parsing.Symbol;
+import org.apache.avro.util.Utf8;
+
+/**
+ * {@link Decoder} that performs type-resolution between the reader's and
+ * writer's schemas.
+ *
+ * &lt;p&gt;
+ * When resolving schemas, this class will return the values of fields in
+ * _writer's_ order, not the reader's order. (However, it returns _only_ the
+ * reader's fields, not any extra fields the writer may have written.) To help
+ * clients handle fields that appear to be coming out of order, this class
+ * defines the method {@link #readFieldOrder}.
+ *
+ * &lt;p&gt;
+ * See the &lt;a href=&quot;parsing/doc-files/parsing.html&quot;&gt;parser documentation&lt;/a&gt; for
+ * information on how this works.
+ */
+<span class="nc bnc" id="L46" title="All 2 branches missed.">public class ResolvingDecoder extends ValidatingDecoder {</span>
+
+  private Decoder backup;
+
+  ResolvingDecoder(Schema writer, Schema reader, Decoder in) throws IOException {
+<span class="nc" id="L51">    this(resolve(writer, reader), in);</span>
+<span class="nc" id="L52">  }</span>
+
+  /**
+   * Constructs a &lt;tt&gt;ResolvingDecoder&lt;/tt&gt; using the given resolver. The resolver
+   * must have been returned by a previous call to
+   * {@link #resolve(Schema, Schema)}.
+   *
+   * @param resolver The resolver to use.
+   * @param in       The underlying decoder.
+   * @throws IOException
+   */
+  private ResolvingDecoder(Object resolver, Decoder in) throws IOException {
+<span class="nc" id="L64">    super((Symbol) resolver, in);</span>
+<span class="nc" id="L65">  }</span>
+
+  /**
+   * Produces an opaque resolver that can be used to construct a new
+   * {@link ResolvingDecoder#ResolvingDecoder(Object, Decoder)}. The returned
+   * Object is immutable and hence can be simultaneously used in many
+   * ResolvingDecoders. This method is reasonably expensive, the users are
+   * encouraged to cache the result.
+   *
+   * @param writer The writer's schema. Cannot be null.
+   * @param reader The reader's schema. Cannot be null.
+   * @return The opaque resolver.
+   * @throws IOException
+   * @throws NullPointerException if {@code writer} or {@code reader} is
+   *                              {@code null}
+   */
+  public static Object resolve(Schema writer, Schema reader) throws IOException {
+<span class="nc" id="L82">    Objects.requireNonNull(writer, &quot;Writer schema cannot be null&quot;);</span>
+<span class="nc" id="L83">    Objects.requireNonNull(reader, &quot;Reader schema cannot be null&quot;);</span>
+<span class="nc" id="L84">    return new ResolvingGrammarGenerator().generate(writer, reader);</span>
+  }
+
+  /**
+   * Returns the actual order in which the reader's fields will be returned to the
+   * reader.
+   *
+   * This method is useful because {@link ResolvingDecoder} returns values in the
+   * order written by the writer, rather than the order expected by the reader.
+   * This method allows readers to figure out what fields to expect. Let's say the
+   * reader is expecting a three-field record, the first field is a long, the
+   * second a string, and the third an array. In this case, a typical usage might
+   * be as follows:
+   *
+   * &lt;pre&gt;
+   *   Schema.Fields[] fieldOrder = in.readFieldOrder();
+   *   for (int i = 0; i &amp;lt; 3; i++) {
+   *     switch (fieldOrder[i].pos()) {
+   *     case 1:
+   *       foo(in.readLong());
+   *       break;
+   *     case 2:
+   *       someVariable = in.readString();
+   *       break;
+   *     case 3:
+   *       bar(in); // The code of &quot;bar&quot; will read an array-of-int
+   *       break;
+   *     }
+   * &lt;/pre&gt;
+   *
+   * Note that {@link ResolvingDecoder} will return only the fields expected by
+   * the reader, not other fields that may have been written by the writer. Thus,
+   * the iteration-count of &quot;3&quot; in the above loop will always be correct.
+   *
+   * Throws a runtime exception if we're not just about to read the first field of
+   * a record. (If the client knows the order of incoming fields, then the client
+   * does &lt;em&gt;not&lt;/em&gt; need to call this method but rather can just start reading
+   * the field values.)
+   *
+   * @throws AvroTypeException If we're not starting a new record
+   *
+   */
+  public final Schema.Field[] readFieldOrder() throws IOException {
+<span class="nc" id="L127">    return ((Symbol.FieldOrderAction) parser.advance(Symbol.FIELD_ACTION)).fields;</span>
+  }
+
+  /**
+   * Same as {@link #readFieldOrder} except that it returns &lt;tt&gt;null&lt;/tt&gt; if there
+   * was no reordering of fields, i.e., if the correct thing for the reader to do
+   * is to read (all) of its fields in the order specified by its own schema
+   * (useful for optimizations).
+   */
+  public final Schema.Field[] readFieldOrderIfDiff() throws IOException {
+<span class="nc" id="L137">    Symbol.FieldOrderAction top = (Symbol.FieldOrderAction) parser.advance(Symbol.FIELD_ACTION);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">    return (top.noReorder ? null : top.fields);</span>
+  }
+
+  /**
+   * Consume any more data that has been written by the writer but not needed by
+   * the reader so that the the underlying decoder is in proper shape for the next
+   * record. This situation happens when, for example, the writer writes a record
+   * with two fields and the reader needs only the first field.
+   *
+   * This function should be called after completely decoding an object but before
+   * next object can be decoded from the same underlying decoder either directly
+   * or through another resolving decoder. If the same resolving decoder is used
+   * for the next object as well, calling this method is optional; the state of
+   * this resolving decoder ensures that any leftover portions are consumed before
+   * the next object is decoded.
+   *
+   * @throws IOException
+   */
+  public final void drain() throws IOException {
+<span class="nc" id="L157">    parser.processImplicitActions();</span>
+<span class="nc" id="L158">  }</span>
+
+  @Override
+  public long readLong() throws IOException {
+<span class="nc" id="L162">    Symbol actual = parser.advance(Symbol.LONG);</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">    if (actual == Symbol.INT) {</span>
+<span class="nc" id="L164">      return in.readInt();</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">    } else if (actual == Symbol.DOUBLE) {</span>
+<span class="nc" id="L166">      return (long) in.readDouble();</span>
+    } else {
+<span class="nc bnc" id="L168" title="All 4 branches missed.">      assert actual == Symbol.LONG;</span>
+<span class="nc" id="L169">      return in.readLong();</span>
+    }
+  }
+
+  @Override
+  public float readFloat() throws IOException {
+<span class="nc" id="L175">    Symbol actual = parser.advance(Symbol.FLOAT);</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">    if (actual == Symbol.INT) {</span>
+<span class="nc" id="L177">      return (float) in.readInt();</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">    } else if (actual == Symbol.LONG) {</span>
+<span class="nc" id="L179">      return (float) in.readLong();</span>
+    } else {
+<span class="nc bnc" id="L181" title="All 4 branches missed.">      assert actual == Symbol.FLOAT;</span>
+<span class="nc" id="L182">      return in.readFloat();</span>
+    }
+  }
+
+  @Override
+  public double readDouble() throws IOException {
+<span class="nc" id="L188">    Symbol actual = parser.advance(Symbol.DOUBLE);</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">    if (actual == Symbol.INT) {</span>
+<span class="nc" id="L190">      return (double) in.readInt();</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">    } else if (actual == Symbol.LONG) {</span>
+<span class="nc" id="L192">      return (double) in.readLong();</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">    } else if (actual == Symbol.FLOAT) {</span>
+<span class="nc" id="L194">      return (double) in.readFloat();</span>
+    } else {
+<span class="nc bnc" id="L196" title="All 4 branches missed.">      assert actual == Symbol.DOUBLE;</span>
+<span class="nc" id="L197">      return in.readDouble();</span>
+    }
+  }
+
+  @Override
+  public Utf8 readString(Utf8 old) throws IOException {
+<span class="nc" id="L203">    Symbol actual = parser.advance(Symbol.STRING);</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">    if (actual == Symbol.BYTES) {</span>
+<span class="nc" id="L205">      return new Utf8(in.readBytes(null).array());</span>
+    } else {
+<span class="nc bnc" id="L207" title="All 4 branches missed.">      assert actual == Symbol.STRING;</span>
+<span class="nc" id="L208">      return in.readString(old);</span>
+    }
+  }
+
+  @Override
+  public String readString() throws IOException {
+<span class="nc" id="L214">    Symbol actual = parser.advance(Symbol.STRING);</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (actual == Symbol.BYTES) {</span>
+<span class="nc" id="L216">      return new String(in.readBytes(null).array(), StandardCharsets.UTF_8);</span>
+    } else {
+<span class="nc bnc" id="L218" title="All 4 branches missed.">      assert actual == Symbol.STRING;</span>
+<span class="nc" id="L219">      return in.readString();</span>
+    }
+  }
+
+  @Override
+  public void skipString() throws IOException {
+<span class="nc" id="L225">    Symbol actual = parser.advance(Symbol.STRING);</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">    if (actual == Symbol.BYTES) {</span>
+<span class="nc" id="L227">      in.skipBytes();</span>
+    } else {
+<span class="nc bnc" id="L229" title="All 4 branches missed.">      assert actual == Symbol.STRING;</span>
+<span class="nc" id="L230">      in.skipString();</span>
+    }
+<span class="nc" id="L232">  }</span>
+
+  @Override
+  public ByteBuffer readBytes(ByteBuffer old) throws IOException {
+<span class="nc" id="L236">    Symbol actual = parser.advance(Symbol.BYTES);</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">    if (actual == Symbol.STRING) {</span>
+<span class="nc" id="L238">      Utf8 s = in.readString(null);</span>
+<span class="nc" id="L239">      return ByteBuffer.wrap(s.getBytes(), 0, s.getByteLength());</span>
+    } else {
+<span class="nc bnc" id="L241" title="All 4 branches missed.">      assert actual == Symbol.BYTES;</span>
+<span class="nc" id="L242">      return in.readBytes(old);</span>
+    }
+  }
+
+  @Override
+  public void skipBytes() throws IOException {
+<span class="nc" id="L248">    Symbol actual = parser.advance(Symbol.BYTES);</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">    if (actual == Symbol.STRING) {</span>
+<span class="nc" id="L250">      in.skipString();</span>
+    } else {
+<span class="nc bnc" id="L252" title="All 4 branches missed.">      assert actual == Symbol.BYTES;</span>
+<span class="nc" id="L253">      in.skipBytes();</span>
+    }
+<span class="nc" id="L255">  }</span>
+
+  @Override
+  public int readEnum() throws IOException {
+<span class="nc" id="L259">    parser.advance(Symbol.ENUM);</span>
+<span class="nc" id="L260">    Symbol.EnumAdjustAction top = (Symbol.EnumAdjustAction) parser.popSymbol();</span>
+<span class="nc" id="L261">    int n = in.readEnum();</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">    if (top.noAdjustments) {</span>
+<span class="nc" id="L263">      return n;</span>
+    }
+<span class="nc" id="L265">    Object o = top.adjustments[n];</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">    if (o instanceof Integer) {</span>
+<span class="nc" id="L267">      return (Integer) o;</span>
+    } else {
+<span class="nc" id="L269">      throw new AvroTypeException((String) o);</span>
+    }
+  }
+
+  @Override
+  public int readIndex() throws IOException {
+<span class="nc" id="L275">    parser.advance(Symbol.UNION);</span>
+<span class="nc" id="L276">    Symbol top = parser.popSymbol();</span>
+    final int result;
+<span class="nc bnc" id="L278" title="All 2 branches missed.">    if (top instanceof Symbol.UnionAdjustAction) {</span>
+<span class="nc" id="L279">      result = ((Symbol.UnionAdjustAction) top).rindex;</span>
+<span class="nc" id="L280">      top = ((Symbol.UnionAdjustAction) top).symToParse;</span>
+    } else {
+<span class="nc" id="L282">      result = in.readIndex();</span>
+<span class="nc" id="L283">      top = ((Symbol.Alternative) top).getSymbol(result);</span>
+    }
+<span class="nc" id="L285">    parser.pushSymbol(top);</span>
+<span class="nc" id="L286">    return result;</span>
+  }
+
+  @Override
+  public Symbol doAction(Symbol input, Symbol top) throws IOException {
+<span class="nc bnc" id="L291" title="All 2 branches missed.">    if (top instanceof Symbol.FieldOrderAction) {</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">      return input == Symbol.FIELD_ACTION ? top : null;</span>
+    }
+<span class="nc bnc" id="L294" title="All 2 branches missed.">    if (top instanceof Symbol.ResolvingAction) {</span>
+<span class="nc" id="L295">      Symbol.ResolvingAction t = (Symbol.ResolvingAction) top;</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">      if (t.reader != input) {</span>
+<span class="nc" id="L297">        throw new AvroTypeException(&quot;Found &quot; + t.reader + &quot; while looking for &quot; + input);</span>
+      } else {
+<span class="nc" id="L299">        return t.writer;</span>
+      }
+<span class="nc bnc" id="L301" title="All 2 branches missed.">    } else if (top instanceof Symbol.SkipAction) {</span>
+<span class="nc" id="L302">      Symbol symToSkip = ((Symbol.SkipAction) top).symToSkip;</span>
+<span class="nc" id="L303">      parser.skipSymbol(symToSkip);</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">    } else if (top instanceof Symbol.WriterUnionAction) {</span>
+<span class="nc" id="L305">      Symbol.Alternative branches = (Symbol.Alternative) parser.popSymbol();</span>
+<span class="nc" id="L306">      parser.pushSymbol(branches.getSymbol(in.readIndex()));</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">    } else if (top instanceof Symbol.ErrorAction) {</span>
+<span class="nc" id="L308">      throw new AvroTypeException(((Symbol.ErrorAction) top).msg);</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">    } else if (top instanceof Symbol.DefaultStartAction) {</span>
+<span class="nc" id="L310">      Symbol.DefaultStartAction dsa = (Symbol.DefaultStartAction) top;</span>
+<span class="nc" id="L311">      backup = in;</span>
+<span class="nc" id="L312">      in = DecoderFactory.get().binaryDecoder(dsa.contents, null);</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">    } else if (top == Symbol.DEFAULT_END_ACTION) {</span>
+<span class="nc" id="L314">      in = backup;</span>
+    } else {
+<span class="nc" id="L316">      throw new AvroTypeException(&quot;Unknown action: &quot; + top);</span>
+    }
+<span class="nc" id="L318">    return null;</span>
+  }
+
+  @Override
+  public void skipAction() throws IOException {
+<span class="nc" id="L323">    Symbol top = parser.popSymbol();</span>
+<span class="nc bnc" id="L324" title="All 2 branches missed.">    if (top instanceof Symbol.ResolvingAction) {</span>
+<span class="nc" id="L325">      parser.pushSymbol(((Symbol.ResolvingAction) top).writer);</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">    } else if (top instanceof Symbol.SkipAction) {</span>
+<span class="nc" id="L327">      parser.pushSymbol(((Symbol.SkipAction) top).symToSkip);</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">    } else if (top instanceof Symbol.WriterUnionAction) {</span>
+<span class="nc" id="L329">      Symbol.Alternative branches = (Symbol.Alternative) parser.popSymbol();</span>
+<span class="nc" id="L330">      parser.pushSymbol(branches.getSymbol(in.readIndex()));</span>
+<span class="nc bnc" id="L331" title="All 2 branches missed.">    } else if (top instanceof Symbol.ErrorAction) {</span>
+<span class="nc" id="L332">      throw new AvroTypeException(((Symbol.ErrorAction) top).msg);</span>
+<span class="nc bnc" id="L333" title="All 2 branches missed.">    } else if (top instanceof Symbol.DefaultStartAction) {</span>
+<span class="nc" id="L334">      Symbol.DefaultStartAction dsa = (Symbol.DefaultStartAction) top;</span>
+<span class="nc" id="L335">      backup = in;</span>
+<span class="nc" id="L336">      in = DecoderFactory.get().binaryDecoder(dsa.contents, null);</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">    } else if (top == Symbol.DEFAULT_END_ACTION) {</span>
+<span class="nc" id="L338">      in = backup;</span>
+    }
+<span class="nc" id="L340">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

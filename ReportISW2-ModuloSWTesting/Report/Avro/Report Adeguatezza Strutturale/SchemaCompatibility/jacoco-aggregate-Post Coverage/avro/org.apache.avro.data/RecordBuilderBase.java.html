@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>RecordBuilderBase.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro.data</a> &gt; <span class="el_source">RecordBuilderBase.java</span></div><h1>RecordBuilderBase.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro.data;
+
+import org.apache.avro.AvroRuntimeException;
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.Schema.Type;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.IndexedRecord;
+
+import java.io.IOException;
+import java.util.Arrays;
+
+/** Abstract base class for RecordBuilder implementations. Not thread-safe. */
+public abstract class RecordBuilderBase&lt;T extends IndexedRecord&gt; implements RecordBuilder&lt;T&gt; {
+  private final Schema schema;
+  private final Field[] fields;
+  private final boolean[] fieldSetFlags;
+  private final GenericData data;
+
+  protected final Schema schema() {
+<span class="nc" id="L38">    return schema;</span>
+  }
+
+  protected final Field[] fields() {
+<span class="nc" id="L42">    return fields;</span>
+  }
+
+  protected final boolean[] fieldSetFlags() {
+<span class="nc" id="L46">    return fieldSetFlags;</span>
+  }
+
+  protected final GenericData data() {
+<span class="nc" id="L50">    return data;</span>
+  }
+
+  /**
+   * Creates a RecordBuilderBase for building records of the given type.
+   * 
+   * @param schema the schema associated with the record class.
+   */
+<span class="nc" id="L58">  protected RecordBuilderBase(Schema schema, GenericData data) {</span>
+<span class="nc" id="L59">    this.schema = schema;</span>
+<span class="nc" id="L60">    this.data = data;</span>
+<span class="nc" id="L61">    fields = schema.getFields().toArray(new Field[0]);</span>
+<span class="nc" id="L62">    fieldSetFlags = new boolean[fields.length];</span>
+<span class="nc" id="L63">  }</span>
+
+  /**
+   * RecordBuilderBase copy constructor. Makes a deep copy of the values in the
+   * other builder.
+   * 
+   * @param other RecordBuilderBase instance to copy.
+   */
+<span class="nc" id="L71">  protected RecordBuilderBase(RecordBuilderBase&lt;T&gt; other, GenericData data) {</span>
+<span class="nc" id="L72">    this.schema = other.schema;</span>
+<span class="nc" id="L73">    this.data = data;</span>
+<span class="nc" id="L74">    fields = schema.getFields().toArray(new Field[0]);</span>
+<span class="nc" id="L75">    fieldSetFlags = Arrays.copyOf(other.fieldSetFlags, other.fieldSetFlags.length);</span>
+<span class="nc" id="L76">  }</span>
+
+  /**
+   * Validates that a particular value for a given field is valid according to the
+   * following algorithm: 1. If the value is not null, or the field type is null,
+   * or the field type is a union which accepts nulls, returns. 2. Else, if the
+   * field has a default value, returns. 3. Otherwise throws AvroRuntimeException.
+   * 
+   * @param field the field to validate.
+   * @param value the value to validate.
+   * @throws AvroRuntimeException if value is null and the given field does not
+   *                              accept null values.
+   */
+  protected void validate(Field field, Object value) {
+<span class="nc bnc" id="L90" title="All 4 branches missed.">    if (!isValidValue(field, value) &amp;&amp; field.defaultVal() == null) {</span>
+<span class="nc" id="L91">      throw new AvroRuntimeException(&quot;Field &quot; + field + &quot; does not accept null values&quot;);</span>
+    }
+<span class="nc" id="L93">  }</span>
+
+  /**
+   * Tests whether a value is valid for a specified field.
+   * 
+   * @param f     the field for which to test the value.
+   * @param value the value to test.
+   * @return true if the value is valid for the given field; false otherwise.
+   */
+  protected static boolean isValidValue(Field f, Object value) {
+<span class="nc bnc" id="L103" title="All 2 branches missed.">    if (value != null) {</span>
+<span class="nc" id="L104">      return true;</span>
+    }
+
+<span class="nc" id="L107">    Schema schema = f.schema();</span>
+<span class="nc" id="L108">    Type type = schema.getType();</span>
+
+    // If the type is null, any value is valid
+<span class="nc bnc" id="L111" title="All 2 branches missed.">    if (type == Type.NULL) {</span>
+<span class="nc" id="L112">      return true;</span>
+    }
+
+    // If the type is a union that allows nulls, any value is valid
+<span class="nc bnc" id="L116" title="All 2 branches missed.">    if (type == Type.UNION) {</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">      for (Schema s : schema.getTypes()) {</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (s.getType() == Type.NULL) {</span>
+<span class="nc" id="L119">          return true;</span>
+        }
+<span class="nc" id="L121">      }</span>
+    }
+
+    // The value is null but the type does not allow nulls
+<span class="nc" id="L125">    return false;</span>
+  }
+
+  /**
+   * Gets the default value of the given field, if any.
+   * 
+   * @param field the field whose default value should be retrieved.
+   * @return the default value associated with the given field, or null if none is
+   *         specified in the schema.
+   * @throws IOException
+   */
+  @SuppressWarnings({ &quot;rawtypes&quot;, &quot;unchecked&quot; })
+  protected Object defaultValue(Field field) throws IOException {
+<span class="nc" id="L138">    return data.deepCopy(field.schema(), data.getDefaultValue(field));</span>
+  }
+
+  @Override
+  public int hashCode() {
+<span class="nc" id="L143">    final int prime = 31;</span>
+<span class="nc" id="L144">    int result = 1;</span>
+<span class="nc" id="L145">    result = prime * result + Arrays.hashCode(fieldSetFlags);</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">    result = prime * result + ((schema == null) ? 0 : schema.hashCode());</span>
+<span class="nc" id="L147">    return result;</span>
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+<span class="nc bnc" id="L152" title="All 2 branches missed.">    if (this == obj)</span>
+<span class="nc" id="L153">      return true;</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">    if (obj == null)</span>
+<span class="nc" id="L155">      return false;</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">    if (getClass() != obj.getClass())</span>
+<span class="nc" id="L157">      return false;</span>
+    @SuppressWarnings(&quot;rawtypes&quot;)
+<span class="nc" id="L159">    RecordBuilderBase other = (RecordBuilderBase) obj;</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">    if (!Arrays.equals(fieldSetFlags, other.fieldSetFlags))</span>
+<span class="nc" id="L161">      return false;</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">    if (schema == null) {</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">      return other.schema == null;</span>
+    } else {
+<span class="nc" id="L165">      return schema.equals(other.schema);</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

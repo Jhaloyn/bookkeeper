@@ -1,0 +1,2724 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>SchemaBuilder.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">Test-coverage</a> &gt; <a href="../index.html" class="el_bundle">avro</a> &gt; <a href="index.source.html" class="el_package">org.apache.avro</a> &gt; <span class="el_source">SchemaBuilder.java</span></div><h1>SchemaBuilder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.avro;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+import com.fasterxml.jackson.core.io.JsonStringEncoder;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.util.internal.JacksonUtils;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.NullNode;
+import com.fasterxml.jackson.databind.node.TextNode;
+
+/**
+ * &lt;p&gt;
+ * A fluent interface for building {@link Schema} instances. The flow of the API
+ * is designed to mimic the
+ * &lt;a href=&quot;https://avro.apache.org/docs/current/spec.html#schemas&quot;&gt;Avro Schema
+ * Specification&lt;/a&gt;
+ * &lt;/p&gt;
+ * For example, the below JSON schema and the fluent builder code to create it
+ * are very similar:
+ *
+ * &lt;pre&gt;
+ * {
+ *   &quot;type&quot;: &quot;record&quot;,
+ *   &quot;name&quot;: &quot;HandshakeRequest&quot;, &quot;namespace&quot;:&quot;org.apache.avro.ipc&quot;,
+ *   &quot;fields&quot;: [
+ *     {&quot;name&quot;: &quot;clientHash&quot;,
+ *      &quot;type&quot;: {&quot;type&quot;: &quot;fixed&quot;, &quot;name&quot;: &quot;MD5&quot;, &quot;size&quot;: 16}},
+ *     {&quot;name&quot;: &quot;clientProtocol&quot;, &quot;type&quot;: [&quot;null&quot;, &quot;string&quot;]},
+ *     {&quot;name&quot;: &quot;serverHash&quot;, &quot;type&quot;: &quot;MD5&quot;},
+ *     {&quot;name&quot;: &quot;meta&quot;, &quot;type&quot;: [&quot;null&quot;, {&quot;type&quot;: &quot;map&quot;, &quot;values&quot;: &quot;bytes&quot;}]}
+ *   ]
+ * }
+ * &lt;/pre&gt;
+ *
+ * &lt;pre&gt;
+ * Schema schema = SchemaBuilder.record(&quot;HandshakeRequest&quot;).namespace(&quot;org.apache.avro.ipc&quot;).fields().name(&quot;clientHash&quot;)
+ *     .type().fixed(&quot;MD5&quot;).size(16).noDefault().name(&quot;clientProtocol&quot;).type().nullable().stringType().noDefault()
+ *     .name(&quot;serverHash&quot;).type(&quot;MD5&quot;).noDefault().name(&quot;meta&quot;).type().nullable().map().values().bytesType().noDefault()
+ *     .endRecord();
+ * &lt;/pre&gt;
+ * &lt;p/&gt;
+ *
+ * &lt;h5&gt;Usage Guide&lt;/h5&gt; SchemaBuilder chains together many smaller builders and
+ * maintains nested context in order to mimic the Avro Schema specification.
+ * Every Avro type in JSON has required and optional JSON properties, as well as
+ * user-defined properties.
+ * &lt;p/&gt;
+ * &lt;h6&gt;Selecting and Building an Avro Type&lt;/h6&gt; The API analogy for the right
+ * hand side of the Avro Schema JSON
+ *
+ * &lt;pre&gt;
+ * &quot;type&quot;:
+ * &lt;/pre&gt;
+ *
+ * is a {@link TypeBuilder}, {@link FieldTypeBuilder}, or
+ * {@link UnionFieldTypeBuilder}, depending on the context. These types all
+ * share a similar API for selecting and building types.
+ * &lt;p/&gt;
+ * &lt;h5&gt;Primitive Types&lt;/h5&gt; All Avro primitive types are trivial to configure. A
+ * primitive type in Avro JSON can be declared two ways, one that supports
+ * custom properties and one that does not:
+ *
+ * &lt;pre&gt;
+ * {&quot;type&quot;:&quot;int&quot;}
+ * {&quot;type&quot;:{&quot;name&quot;:&quot;int&quot;}}
+ * {&quot;type&quot;:{&quot;name&quot;:&quot;int&quot;, &quot;customProp&quot;:&quot;val&quot;}}
+ * &lt;/pre&gt;
+ *
+ * The analogous code form for the above three JSON lines are the below three
+ * lines:
+ *
+ * &lt;pre&gt;
+ *  .intType()
+ *  .intBuilder().endInt()
+ *  .intBuilder().prop(&quot;customProp&quot;, &quot;val&quot;).endInt()
+ * &lt;/pre&gt;
+ *
+ * Every primitive type has a shortcut to create the trivial type, and a builder
+ * when custom properties are required. The first line above is a shortcut for
+ * the second, analogous to the JSON case.
+ * &lt;h6&gt;Named Types&lt;/h6&gt; Avro named types have names, namespace, aliases, and
+ * doc. In this API these share a common parent, {@link NamespacedBuilder}. The
+ * builders for named types require a name to be constructed, and optional
+ * configuration via:
+ * &lt;li&gt;{@link NamespacedBuilder#doc()}&lt;/li&gt;
+ * &lt;li&gt;{@link NamespacedBuilder#namespace(String)}&lt;/li&gt;
+ * &lt;li&gt;{@link NamespacedBuilder#aliases(String...)}&lt;/li&gt;
+ * &lt;li&gt;{@link PropBuilder#prop(String, String)}&lt;/li&gt;
+ * &lt;p/&gt;
+ * Each named type completes configuration of the optional properties with its
+ * own method:
+ * &lt;li&gt;{@link FixedBuilder#size(int)}&lt;/li&gt;
+ * &lt;li&gt;{@link EnumBuilder#symbols(String...)}&lt;/li&gt;
+ * &lt;li&gt;{@link RecordBuilder#fields()}&lt;/li&gt; Example use of a named type with all
+ * optional parameters:
+ *
+ * &lt;pre&gt;
+ * .enumeration(&quot;Suit&quot;).namespace(&quot;org.apache.test&quot;)
+ *   .aliases(&quot;org.apache.test.OldSuit&quot;)
+ *   .doc(&quot;CardSuits&quot;)
+ *   .prop(&quot;customProp&quot;, &quot;val&quot;)
+ *   .symbols(&quot;SPADES&quot;, &quot;HEARTS&quot;, &quot;DIAMONDS&quot;, &quot;CLUBS&quot;)
+ * &lt;/pre&gt;
+ *
+ * Which is equivalent to the JSON:
+ *
+ * &lt;pre&gt;
+ * { &quot;type&quot;:&quot;enum&quot;,
+ *   &quot;name&quot;:&quot;Suit&quot;, &quot;namespace&quot;:&quot;org.apache.test&quot;,
+ *   &quot;aliases&quot;:[&quot;org.apache.test.OldSuit&quot;],
+ *   &quot;doc&quot;:&quot;Card Suits&quot;,
+ *   &quot;customProp&quot;:&quot;val&quot;,
+ *   &quot;symbols&quot;:[&quot;SPADES&quot;, &quot;HEARTS&quot;, &quot;DIAMONDS&quot;, &quot;CLUBS&quot;]
+ * }
+ * &lt;/pre&gt;
+ *
+ * &lt;h6&gt;Nested Types&lt;/h6&gt; The Avro nested types, map and array, can have custom
+ * properties like all avro types, are not named, and must specify a nested
+ * type. After configuration of optional properties, an array or map builds or
+ * selects its nested type with {@link ArrayBuilder#items()} and
+ * {@link MapBuilder#values()}, respectively.
+ *
+ * &lt;h6&gt;Fields&lt;/h6&gt; {@link RecordBuilder#fields()} returns a
+ * {@link FieldAssembler} for defining the fields of the record and completing
+ * it. Each field must have a name, specified via
+ * {@link FieldAssembler#name(String)}, which returns a {@link FieldBuilder} for
+ * defining aliases, custom properties, and documentation of the field. After
+ * configuring these optional values for a field, the type is selected or built
+ * with {@link FieldBuilder#type()}.
+ * &lt;p/&gt;
+ * Fields have default values that must be specified to complete the field.
+ * {@link FieldDefault#noDefault()} is available for all field types, and a
+ * specific method is available for each type to use a default, for example
+ * {@link IntDefault#intDefault(int)}
+ * &lt;p/&gt;
+ * There are field shortcut methods on {@link FieldAssembler} for primitive
+ * types. These shortcuts create required, optional, and nullable fields, but do
+ * not support field aliases, doc, or custom properties.
+ *
+ * &lt;h6&gt;Unions&lt;/h6&gt; Union types are built via {@link TypeBuilder#unionOf()} or
+ * {@link FieldTypeBuilder#unionOf()} in the context of type selection. This
+ * chains together multiple types, in union order. For example:
+ *
+ * &lt;pre&gt;
+ * .unionOf()
+ *   .fixed(&quot;IPv4&quot;).size(4).and()
+ *   .fixed(&quot;IPv6&quot;).size(16).and()
+ *   .nullType().endUnion()
+ * &lt;/pre&gt;
+ *
+ * is equivalent to the Avro schema JSON:
+ *
+ * &lt;pre&gt;
+ * [
+ *   {&quot;type&quot;:&quot;fixed&quot;, &quot;name&quot;:&quot;IPv4&quot;, &quot;size&quot;:4},
+ *   {&quot;type&quot;:&quot;fixed&quot;, &quot;name&quot;:&quot;IPv6&quot;, &quot;size&quot;:16},
+ *   &quot;null&quot;
+ * ]
+ * &lt;/pre&gt;
+ *
+ * In a field context, the first type of a union defines what default type is
+ * allowed.
+ * &lt;/p&gt;
+ * Unions have two shortcuts for common cases. nullable() creates a union of a
+ * type and null. In a field type context, optional() is available and creates a
+ * union of null and a type, with a null default. The below two are equivalent:
+ *
+ * &lt;pre&gt;
+ *   .unionOf().intType().and().nullType().endUnion()
+ *   .nullable().intType()
+ * &lt;/pre&gt;
+ *
+ * The below two field declarations are equivalent:
+ *
+ * &lt;pre&gt;
+ *   .name(&quot;f&quot;).type().unionOf().nullType().and().longType().endUnion().nullDefault()
+ *   .name(&quot;f&quot;).type().optional().longType()
+ * &lt;/pre&gt;
+ *
+ * &lt;h6&gt;Explicit Types and Types by Name&lt;/h6&gt; Types can also be specified
+ * explicitly by passing in a Schema, or by name:
+ *
+ * &lt;pre&gt;
+ *   .type(Schema.create(Schema.Type.INT)) // explicitly specified
+ *   .type(&quot;MD5&quot;)                       // reference by full name or short name
+ *   .type(&quot;MD5&quot;, &quot;org.apache.avro.test&quot;)  // reference by name and namespace
+ * &lt;/pre&gt;
+ *
+ * When a type is specified by name, and the namespace is absent or null, the
+ * namespace is inherited from the enclosing context. A namespace will propagate
+ * as a default to child fields, nested types, or later defined types in a
+ * union. To specify a name that has no namespace and ignore the inherited
+ * namespace, set the namespace to &quot;&quot;.
+ * &lt;p/&gt;
+ * {@link SchemaBuilder#builder(String)} returns a type builder with a default
+ * namespace. {@link SchemaBuilder#builder()} returns a type builder with no
+ * default namespace.
+ */
+public class SchemaBuilder {
+
+  private SchemaBuilder() {
+  }
+
+  /**
+   * Create a builder for Avro schemas.
+   */
+  public static TypeBuilder&lt;Schema&gt; builder() {
+<span class="nc" id="L241">    return new TypeBuilder&lt;&gt;(new SchemaCompletion(), new NameContext());</span>
+  }
+
+  /**
+   * Create a builder for Avro schemas with a default namespace. Types created
+   * without namespaces will inherit the namespace provided.
+   */
+  public static TypeBuilder&lt;Schema&gt; builder(String namespace) {
+<span class="nc" id="L249">    return new TypeBuilder&lt;&gt;(new SchemaCompletion(), new NameContext().namespace(namespace));</span>
+  }
+
+  /**
+   * Create a builder for an Avro record with the specified name. This is
+   * equivalent to:
+   *
+   * &lt;pre&gt;
+   * builder().record(name);
+   * &lt;/pre&gt;
+   *
+   * @param name the record name
+   */
+  public static RecordBuilder&lt;Schema&gt; record(String name) {
+<span class="nc" id="L263">    return builder().record(name);</span>
+  }
+
+  /**
+   * Create a builder for an Avro enum with the specified name and symbols
+   * (values). This is equivalent to:
+   *
+   * &lt;pre&gt;
+   * builder().enumeration(name);
+   * &lt;/pre&gt;
+   *
+   * @param name the enum name
+   */
+  public static EnumBuilder&lt;Schema&gt; enumeration(String name) {
+<span class="nc" id="L277">    return builder().enumeration(name);</span>
+  }
+
+  /**
+   * Create a builder for an Avro fixed type with the specified name and size.
+   * This is equivalent to:
+   *
+   * &lt;pre&gt;
+   * builder().fixed(name);
+   * &lt;/pre&gt;
+   *
+   * @param name the fixed name
+   */
+  public static FixedBuilder&lt;Schema&gt; fixed(String name) {
+<span class="nc" id="L291">    return builder().fixed(name);</span>
+  }
+
+  /**
+   * Create a builder for an Avro array This is equivalent to:
+   *
+   * &lt;pre&gt;
+   * builder().array();
+   * &lt;/pre&gt;
+   */
+  public static ArrayBuilder&lt;Schema&gt; array() {
+<span class="nc" id="L302">    return builder().array();</span>
+  }
+
+  /**
+   * Create a builder for an Avro map This is equivalent to:
+   *
+   * &lt;pre&gt;
+   * builder().map();
+   * &lt;/pre&gt;
+   */
+  public static MapBuilder&lt;Schema&gt; map() {
+<span class="nc" id="L313">    return builder().map();</span>
+  }
+
+  /**
+   * Create a builder for an Avro union This is equivalent to:
+   *
+   * &lt;pre&gt;
+   * builder().unionOf();
+   * &lt;/pre&gt;
+   */
+  public static BaseTypeBuilder&lt;UnionAccumulator&lt;Schema&gt;&gt; unionOf() {
+<span class="nc" id="L324">    return builder().unionOf();</span>
+  }
+
+  /**
+   * Create a builder for a union of a type and null. This is a shortcut for:
+   *
+   * &lt;pre&gt;
+   * builder().nullable();
+   * &lt;/pre&gt;
+   *
+   * and the following two lines are equivalent:
+   *
+   * &lt;pre&gt;
+   * nullable().intType();
+   * &lt;/pre&gt;
+   *
+   * &lt;pre&gt;
+   * unionOf().intType().and().nullType().endUnion();
+   * &lt;/pre&gt;
+   */
+  public static BaseTypeBuilder&lt;Schema&gt; nullable() {
+<span class="nc" id="L345">    return builder().nullable();</span>
+  }
+
+  /**
+   * An abstract builder for all Avro types. All Avro types can have arbitrary
+   * string key-value properties.
+   */
+  public static abstract class PropBuilder&lt;S extends PropBuilder&lt;S&gt;&gt; {
+<span class="nc" id="L353">    private Map&lt;String, JsonNode&gt; props = null;</span>
+
+<span class="nc" id="L355">    protected PropBuilder() {</span>
+<span class="nc" id="L356">    }</span>
+
+    /**
+     * Set name-value pair properties for this type or field.
+     */
+    public final S prop(String name, String val) {
+<span class="nc" id="L362">      return prop(name, TextNode.valueOf(val));</span>
+    }
+
+    /**
+     * Set name-value pair properties for this type or field.
+     */
+    public final S prop(String name, Object value) {
+<span class="nc" id="L369">      return prop(name, JacksonUtils.toJsonNode(value));</span>
+    }
+
+    // for internal use by the Parser
+    final S prop(String name, JsonNode val) {
+<span class="nc bnc" id="L374" title="All 2 branches missed.">      if (!hasProps()) {</span>
+<span class="nc" id="L375">        props = new HashMap&lt;&gt;();</span>
+      }
+<span class="nc" id="L377">      props.put(name, val);</span>
+<span class="nc" id="L378">      return self();</span>
+    }
+
+    private boolean hasProps() {
+<span class="nc bnc" id="L382" title="All 2 branches missed.">      return (props != null);</span>
+    }
+
+    final &lt;T extends JsonProperties&gt; T addPropsTo(T jsonable) {
+<span class="nc bnc" id="L386" title="All 2 branches missed.">      if (hasProps()) {</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">        for (Map.Entry&lt;String, JsonNode&gt; prop : props.entrySet()) {</span>
+<span class="nc" id="L388">          jsonable.addProp(prop.getKey(), prop.getValue());</span>
+<span class="nc" id="L389">        }</span>
+      }
+<span class="nc" id="L391">      return jsonable;</span>
+    }
+
+    /**
+     * a self-type for chaining builder subclasses. Concrete subclasses must return
+     * 'this'
+     **/
+    protected abstract S self();
+  }
+
+  /**
+   * An abstract type that provides builder methods for configuring the name, doc,
+   * and aliases of all Avro types that have names (fields, Fixed, Record, and
+   * Enum).
+   * &lt;p/&gt;
+   * All Avro named types and fields have 'doc', 'aliases', and 'name' components.
+   * 'name' is required, and provided to this builder. 'doc' and 'aliases' are
+   * optional.
+   */
+  public static abstract class NamedBuilder&lt;S extends NamedBuilder&lt;S&gt;&gt; extends PropBuilder&lt;S&gt; {
+    private final String name;
+    private final NameContext names;
+    private String doc;
+    private String[] aliases;
+
+<span class="nc" id="L416">    protected NamedBuilder(NameContext names, String name) {</span>
+<span class="nc" id="L417">      this.name = Objects.requireNonNull(name, &quot;Type must have a name&quot;);</span>
+<span class="nc" id="L418">      this.names = names;</span>
+<span class="nc" id="L419">    }</span>
+
+    /** configure this type's optional documentation string **/
+    public final S doc(String doc) {
+<span class="nc" id="L423">      this.doc = doc;</span>
+<span class="nc" id="L424">      return self();</span>
+    }
+
+    /** configure this type's optional name aliases **/
+    public final S aliases(String... aliases) {
+<span class="nc" id="L429">      this.aliases = aliases;</span>
+<span class="nc" id="L430">      return self();</span>
+    }
+
+    final String doc() {
+<span class="nc" id="L434">      return doc;</span>
+    }
+
+    final String name() {
+<span class="nc" id="L438">      return name;</span>
+    }
+
+    final NameContext names() {
+<span class="nc" id="L442">      return names;</span>
+    }
+
+    final Schema addAliasesTo(Schema schema) {
+<span class="nc bnc" id="L446" title="All 2 branches missed.">      if (null != aliases) {</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">        for (String alias : aliases) {</span>
+<span class="nc" id="L448">          schema.addAlias(alias);</span>
+        }
+      }
+<span class="nc" id="L451">      return schema;</span>
+    }
+
+    final Field addAliasesTo(Field field) {
+<span class="nc bnc" id="L455" title="All 2 branches missed.">      if (null != aliases) {</span>
+<span class="nc bnc" id="L456" title="All 2 branches missed.">        for (String alias : aliases) {</span>
+<span class="nc" id="L457">          field.addAlias(alias);</span>
+        }
+      }
+<span class="nc" id="L460">      return field;</span>
+    }
+  }
+
+  /**
+   * An abstract type that provides builder methods for configuring the namespace
+   * for all Avro types that have namespaces (Fixed, Record, and Enum).
+   */
+  public static abstract class NamespacedBuilder&lt;R, S extends NamespacedBuilder&lt;R, S&gt;&gt; extends NamedBuilder&lt;S&gt; {
+    private final Completion&lt;R&gt; context;
+    private String namespace;
+
+    protected NamespacedBuilder(Completion&lt;R&gt; context, NameContext names, String name) {
+<span class="nc" id="L473">      super(names, name);</span>
+<span class="nc" id="L474">      this.context = context;</span>
+<span class="nc" id="L475">    }</span>
+
+    /**
+     * Set the namespace of this type. To clear the namespace, set empty string.
+     * &lt;p/&gt;
+     * When the namespace is null or unset, the namespace of the type defaults to
+     * the namespace of the enclosing context.
+     **/
+    public final S namespace(String namespace) {
+<span class="nc" id="L484">      this.namespace = namespace;</span>
+<span class="nc" id="L485">      return self();</span>
+    }
+
+    final String space() {
+<span class="nc bnc" id="L489" title="All 2 branches missed.">      if (null == namespace) {</span>
+<span class="nc" id="L490">        return names().namespace;</span>
+      }
+<span class="nc" id="L492">      return namespace;</span>
+    }
+
+    final Schema completeSchema(Schema schema) {
+<span class="nc" id="L496">      addPropsTo(schema);</span>
+<span class="nc" id="L497">      addAliasesTo(schema);</span>
+<span class="nc" id="L498">      names().put(schema);</span>
+<span class="nc" id="L499">      return schema;</span>
+    }
+
+    final Completion&lt;R&gt; context() {
+<span class="nc" id="L503">      return context;</span>
+    }
+  }
+
+  /**
+   * An abstraction for sharing code amongst all primitive type builders.
+   */
+  private static abstract class PrimitiveBuilder&lt;R, P extends PrimitiveBuilder&lt;R, P&gt;&gt; extends PropBuilder&lt;P&gt; {
+    private final Completion&lt;R&gt; context;
+    private final Schema immutable;
+
+<span class="nc" id="L514">    protected PrimitiveBuilder(Completion&lt;R&gt; context, NameContext names, Schema.Type type) {</span>
+<span class="nc" id="L515">      this.context = context;</span>
+<span class="nc" id="L516">      this.immutable = names.getFullname(type.getName());</span>
+<span class="nc" id="L517">    }</span>
+
+    private R end() {
+<span class="nc" id="L520">      Schema schema = immutable;</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">      if (super.hasProps()) {</span>
+<span class="nc" id="L522">        schema = Schema.create(immutable.getType());</span>
+<span class="nc" id="L523">        addPropsTo(schema);</span>
+      }
+<span class="nc" id="L525">      return context.complete(schema);</span>
+    }
+  }
+
+  /**
+   * Builds an Avro boolean type with optional properties. Set properties with
+   * {@link #prop(String, String)}, and finalize with {@link #endBoolean()}
+   **/
+  public static final class BooleanBuilder&lt;R&gt; extends PrimitiveBuilder&lt;R, BooleanBuilder&lt;R&gt;&gt; {
+    private BooleanBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L535">      super(context, names, Schema.Type.BOOLEAN);</span>
+<span class="nc" id="L536">    }</span>
+
+    private static &lt;R&gt; BooleanBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L539">      return new BooleanBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected BooleanBuilder&lt;R&gt; self() {
+<span class="nc" id="L544">      return this;</span>
+    }
+
+    /** complete building this type, return control to context **/
+    public R endBoolean() {
+<span class="nc" id="L549">      return super.end();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro int type with optional properties. Set properties with
+   * {@link #prop(String, String)}, and finalize with {@link #endInt()}
+   **/
+  public static final class IntBuilder&lt;R&gt; extends PrimitiveBuilder&lt;R, IntBuilder&lt;R&gt;&gt; {
+    private IntBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L559">      super(context, names, Schema.Type.INT);</span>
+<span class="nc" id="L560">    }</span>
+
+    private static &lt;R&gt; IntBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L563">      return new IntBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected IntBuilder&lt;R&gt; self() {
+<span class="nc" id="L568">      return this;</span>
+    }
+
+    /** complete building this type, return control to context **/
+    public R endInt() {
+<span class="nc" id="L573">      return super.end();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro long type with optional properties. Set properties with
+   * {@link #prop(String, String)}, and finalize with {@link #endLong()}
+   **/
+  public static final class LongBuilder&lt;R&gt; extends PrimitiveBuilder&lt;R, LongBuilder&lt;R&gt;&gt; {
+    private LongBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L583">      super(context, names, Schema.Type.LONG);</span>
+<span class="nc" id="L584">    }</span>
+
+    private static &lt;R&gt; LongBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L587">      return new LongBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected LongBuilder&lt;R&gt; self() {
+<span class="nc" id="L592">      return this;</span>
+    }
+
+    /** complete building this type, return control to context **/
+    public R endLong() {
+<span class="nc" id="L597">      return super.end();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro float type with optional properties. Set properties with
+   * {@link #prop(String, String)}, and finalize with {@link #endFloat()}
+   **/
+  public static final class FloatBuilder&lt;R&gt; extends PrimitiveBuilder&lt;R, FloatBuilder&lt;R&gt;&gt; {
+    private FloatBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L607">      super(context, names, Schema.Type.FLOAT);</span>
+<span class="nc" id="L608">    }</span>
+
+    private static &lt;R&gt; FloatBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L611">      return new FloatBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected FloatBuilder&lt;R&gt; self() {
+<span class="nc" id="L616">      return this;</span>
+    }
+
+    /** complete building this type, return control to context **/
+    public R endFloat() {
+<span class="nc" id="L621">      return super.end();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro double type with optional properties. Set properties with
+   * {@link #prop(String, String)}, and finalize with {@link #endDouble()}
+   **/
+  public static final class DoubleBuilder&lt;R&gt; extends PrimitiveBuilder&lt;R, DoubleBuilder&lt;R&gt;&gt; {
+    private DoubleBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L631">      super(context, names, Schema.Type.DOUBLE);</span>
+<span class="nc" id="L632">    }</span>
+
+    private static &lt;R&gt; DoubleBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L635">      return new DoubleBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected DoubleBuilder&lt;R&gt; self() {
+<span class="nc" id="L640">      return this;</span>
+    }
+
+    /** complete building this type, return control to context **/
+    public R endDouble() {
+<span class="nc" id="L645">      return super.end();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro string type with optional properties. Set properties with
+   * {@link #prop(String, String)}, and finalize with {@link #endString()}
+   **/
+  public static final class StringBldr&lt;R&gt; extends PrimitiveBuilder&lt;R, StringBldr&lt;R&gt;&gt; {
+    private StringBldr(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L655">      super(context, names, Schema.Type.STRING);</span>
+<span class="nc" id="L656">    }</span>
+
+    private static &lt;R&gt; StringBldr&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L659">      return new StringBldr&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected StringBldr&lt;R&gt; self() {
+<span class="nc" id="L664">      return this;</span>
+    }
+
+    /** complete building this type, return control to context **/
+    public R endString() {
+<span class="nc" id="L669">      return super.end();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro bytes type with optional properties. Set properties with
+   * {@link #prop(String, String)}, and finalize with {@link #endBytes()}
+   **/
+  public static final class BytesBuilder&lt;R&gt; extends PrimitiveBuilder&lt;R, BytesBuilder&lt;R&gt;&gt; {
+    private BytesBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L679">      super(context, names, Schema.Type.BYTES);</span>
+<span class="nc" id="L680">    }</span>
+
+    private static &lt;R&gt; BytesBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L683">      return new BytesBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected BytesBuilder&lt;R&gt; self() {
+<span class="nc" id="L688">      return this;</span>
+    }
+
+    /** complete building this type, return control to context **/
+    public R endBytes() {
+<span class="nc" id="L693">      return super.end();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro null type with optional properties. Set properties with
+   * {@link #prop(String, String)}, and finalize with {@link #endNull()}
+   **/
+  public static final class NullBuilder&lt;R&gt; extends PrimitiveBuilder&lt;R, NullBuilder&lt;R&gt;&gt; {
+    private NullBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L703">      super(context, names, Schema.Type.NULL);</span>
+<span class="nc" id="L704">    }</span>
+
+    private static &lt;R&gt; NullBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L707">      return new NullBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected NullBuilder&lt;R&gt; self() {
+<span class="nc" id="L712">      return this;</span>
+    }
+
+    /** complete building this type, return control to context **/
+    public R endNull() {
+<span class="nc" id="L717">      return super.end();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro Fixed type with optional properties, namespace, doc, and
+   * aliases.
+   * &lt;p/&gt;
+   * Set properties with {@link #prop(String, String)}, namespace with
+   * {@link #namespace(String)}, doc with {@link #doc(String)}, and aliases with
+   * {@link #aliases(String[])}.
+   * &lt;p/&gt;
+   * The Fixed schema is finalized when its required size is set via
+   * {@link #size(int)}.
+   **/
+  public static final class FixedBuilder&lt;R&gt; extends NamespacedBuilder&lt;R, FixedBuilder&lt;R&gt;&gt; {
+    private FixedBuilder(Completion&lt;R&gt; context, NameContext names, String name) {
+<span class="nc" id="L734">      super(context, names, name);</span>
+<span class="nc" id="L735">    }</span>
+
+    private static &lt;R&gt; FixedBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names, String name) {
+<span class="nc" id="L738">      return new FixedBuilder&lt;&gt;(context, names, name);</span>
+    }
+
+    @Override
+    protected FixedBuilder&lt;R&gt; self() {
+<span class="nc" id="L743">      return this;</span>
+    }
+
+    /** Configure this fixed type's size, and end its configuration. **/
+    public R size(int size) {
+<span class="nc" id="L748">      Schema schema = Schema.createFixed(name(), super.doc(), space(), size);</span>
+<span class="nc" id="L749">      completeSchema(schema);</span>
+<span class="nc" id="L750">      return context().complete(schema);</span>
+    }
+  }
+
+  /**
+   * Builds an Avro Enum type with optional properties, namespace, doc, and
+   * aliases.
+   * &lt;p/&gt;
+   * Set properties with {@link #prop(String, String)}, namespace with
+   * {@link #namespace(String)}, doc with {@link #doc(String)}, and aliases with
+   * {@link #aliases(String[])}.
+   * &lt;p/&gt;
+   * The Enum schema is finalized when its required symbols are set via
+   * {@link #symbols(String[])}.
+   **/
+  public static final class EnumBuilder&lt;R&gt; extends NamespacedBuilder&lt;R, EnumBuilder&lt;R&gt;&gt; {
+    private EnumBuilder(Completion&lt;R&gt; context, NameContext names, String name) {
+<span class="nc" id="L767">      super(context, names, name);</span>
+<span class="nc" id="L768">    }</span>
+
+<span class="nc" id="L770">    private String enumDefault = null;</span>
+
+    private static &lt;R&gt; EnumBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names, String name) {
+<span class="nc" id="L773">      return new EnumBuilder&lt;&gt;(context, names, name);</span>
+    }
+
+    @Override
+    protected EnumBuilder&lt;R&gt; self() {
+<span class="nc" id="L778">      return this;</span>
+    }
+
+    /**
+     * Configure this enum type's symbols, and end its configuration. Populates the
+     * default if it was set.
+     **/
+    public R symbols(String... symbols) {
+<span class="nc" id="L786">      Schema schema = Schema.createEnum(name(), doc(), space(), Arrays.asList(symbols), this.enumDefault);</span>
+<span class="nc" id="L787">      completeSchema(schema);</span>
+<span class="nc" id="L788">      return context().complete(schema);</span>
+    }
+
+    /** Set the default value of the enum. */
+    public EnumBuilder&lt;R&gt; defaultSymbol(String enumDefault) {
+<span class="nc" id="L793">      this.enumDefault = enumDefault;</span>
+<span class="nc" id="L794">      return self();</span>
+    }
+  }
+
+  /**
+   * Builds an Avro Map type with optional properties.
+   * &lt;p/&gt;
+   * Set properties with {@link #prop(String, String)}.
+   * &lt;p/&gt;
+   * The Map schema's properties are finalized when {@link #values()} or
+   * {@link #values(Schema)} is called.
+   **/
+  public static final class MapBuilder&lt;R&gt; extends PropBuilder&lt;MapBuilder&lt;R&gt;&gt; {
+    private final Completion&lt;R&gt; context;
+    private final NameContext names;
+
+<span class="nc" id="L810">    private MapBuilder(Completion&lt;R&gt; context, NameContext names) {</span>
+<span class="nc" id="L811">      this.context = context;</span>
+<span class="nc" id="L812">      this.names = names;</span>
+<span class="nc" id="L813">    }</span>
+
+    private static &lt;R&gt; MapBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L816">      return new MapBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected MapBuilder&lt;R&gt; self() {
+<span class="nc" id="L821">      return this;</span>
+    }
+
+    /**
+     * Return a type builder for configuring the map's nested values schema. This
+     * builder will return control to the map's enclosing context when complete.
+     **/
+    public TypeBuilder&lt;R&gt; values() {
+<span class="nc" id="L829">      return new TypeBuilder&lt;&gt;(new MapCompletion&lt;&gt;(this, context), names);</span>
+    }
+
+    /**
+     * Complete configuration of this map, setting the schema of the map values to
+     * the schema provided. Returns control to the enclosing context.
+     **/
+    public R values(Schema valueSchema) {
+<span class="nc" id="L837">      return new MapCompletion&lt;&gt;(this, context).complete(valueSchema);</span>
+    }
+  }
+
+  /**
+   * Builds an Avro Array type with optional properties.
+   * &lt;p/&gt;
+   * Set properties with {@link #prop(String, String)}.
+   * &lt;p/&gt;
+   * The Array schema's properties are finalized when {@link #items()} or
+   * {@link #items(Schema)} is called.
+   **/
+  public static final class ArrayBuilder&lt;R&gt; extends PropBuilder&lt;ArrayBuilder&lt;R&gt;&gt; {
+    private final Completion&lt;R&gt; context;
+    private final NameContext names;
+
+<span class="nc" id="L853">    public ArrayBuilder(Completion&lt;R&gt; context, NameContext names) {</span>
+<span class="nc" id="L854">      this.context = context;</span>
+<span class="nc" id="L855">      this.names = names;</span>
+<span class="nc" id="L856">    }</span>
+
+    private static &lt;R&gt; ArrayBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L859">      return new ArrayBuilder&lt;&gt;(context, names);</span>
+    }
+
+    @Override
+    protected ArrayBuilder&lt;R&gt; self() {
+<span class="nc" id="L864">      return this;</span>
+    }
+
+    /**
+     * Return a type builder for configuring the array's nested items schema. This
+     * builder will return control to the array's enclosing context when complete.
+     **/
+    public TypeBuilder&lt;R&gt; items() {
+<span class="nc" id="L872">      return new TypeBuilder&lt;&gt;(new ArrayCompletion&lt;&gt;(this, context), names);</span>
+    }
+
+    /**
+     * Complete configuration of this array, setting the schema of the array items
+     * to the schema provided. Returns control to the enclosing context.
+     **/
+    public R items(Schema itemsSchema) {
+<span class="nc" id="L880">      return new ArrayCompletion&lt;&gt;(this, context).complete(itemsSchema);</span>
+    }
+  }
+
+  /**
+   * internal class for passing the naming context around. This allows for the
+   * following:
+   * &lt;li&gt;Cache and re-use primitive schemas when they do not set properties.&lt;/li&gt;
+   * &lt;li&gt;Provide a default namespace for nested contexts (as the JSON Schema spec
+   * does).&lt;/li&gt;
+   * &lt;li&gt;Allow previously defined named types or primitive types to be referenced
+   * by name.&lt;/li&gt;
+   **/
+  private static class NameContext {
+<span class="nc" id="L894">    private static final Set&lt;String&gt; PRIMITIVES = new HashSet&lt;&gt;();</span>
+    static {
+<span class="nc" id="L896">      PRIMITIVES.add(&quot;null&quot;);</span>
+<span class="nc" id="L897">      PRIMITIVES.add(&quot;boolean&quot;);</span>
+<span class="nc" id="L898">      PRIMITIVES.add(&quot;int&quot;);</span>
+<span class="nc" id="L899">      PRIMITIVES.add(&quot;long&quot;);</span>
+<span class="nc" id="L900">      PRIMITIVES.add(&quot;float&quot;);</span>
+<span class="nc" id="L901">      PRIMITIVES.add(&quot;double&quot;);</span>
+<span class="nc" id="L902">      PRIMITIVES.add(&quot;bytes&quot;);</span>
+<span class="nc" id="L903">      PRIMITIVES.add(&quot;string&quot;);</span>
+<span class="nc" id="L904">    }</span>
+    private final HashMap&lt;String, Schema&gt; schemas;
+    private final String namespace;
+
+<span class="nc" id="L908">    private NameContext() {</span>
+<span class="nc" id="L909">      this.schemas = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L910">      this.namespace = null;</span>
+<span class="nc" id="L911">      schemas.put(&quot;null&quot;, Schema.create(Schema.Type.NULL));</span>
+<span class="nc" id="L912">      schemas.put(&quot;boolean&quot;, Schema.create(Schema.Type.BOOLEAN));</span>
+<span class="nc" id="L913">      schemas.put(&quot;int&quot;, Schema.create(Schema.Type.INT));</span>
+<span class="nc" id="L914">      schemas.put(&quot;long&quot;, Schema.create(Schema.Type.LONG));</span>
+<span class="nc" id="L915">      schemas.put(&quot;float&quot;, Schema.create(Schema.Type.FLOAT));</span>
+<span class="nc" id="L916">      schemas.put(&quot;double&quot;, Schema.create(Schema.Type.DOUBLE));</span>
+<span class="nc" id="L917">      schemas.put(&quot;bytes&quot;, Schema.create(Schema.Type.BYTES));</span>
+<span class="nc" id="L918">      schemas.put(&quot;string&quot;, Schema.create(Schema.Type.STRING));</span>
+<span class="nc" id="L919">    }</span>
+
+<span class="nc" id="L921">    private NameContext(HashMap&lt;String, Schema&gt; schemas, String namespace) {</span>
+<span class="nc" id="L922">      this.schemas = schemas;</span>
+<span class="nc bnc" id="L923" title="All 2 branches missed.">      this.namespace = &quot;&quot;.equals(namespace) ? null : namespace;</span>
+<span class="nc" id="L924">    }</span>
+
+    private NameContext namespace(String namespace) {
+<span class="nc" id="L927">      return new NameContext(schemas, namespace);</span>
+    }
+
+    private Schema get(String name, String namespace) {
+<span class="nc" id="L931">      return getFullname(resolveName(name, namespace));</span>
+    }
+
+    private Schema getFullname(String fullName) {
+<span class="nc" id="L935">      Schema schema = schemas.get(fullName);</span>
+<span class="nc bnc" id="L936" title="All 2 branches missed.">      if (schema == null) {</span>
+<span class="nc" id="L937">        throw new SchemaParseException(&quot;Undefined name: &quot; + fullName);</span>
+      }
+<span class="nc" id="L939">      return schema;</span>
+    }
+
+    private void put(Schema schema) {
+<span class="nc" id="L943">      String fullName = schema.getFullName();</span>
+<span class="nc bnc" id="L944" title="All 2 branches missed.">      if (schemas.containsKey(fullName)) {</span>
+<span class="nc" id="L945">        throw new SchemaParseException(&quot;Can't redefine: &quot; + fullName);</span>
+      }
+<span class="nc" id="L947">      schemas.put(fullName, schema);</span>
+<span class="nc" id="L948">    }</span>
+
+    private String resolveName(String name, String space) {
+<span class="nc bnc" id="L951" title="All 4 branches missed.">      if (PRIMITIVES.contains(name) &amp;&amp; space == null) {</span>
+<span class="nc" id="L952">        return name;</span>
+      }
+<span class="nc" id="L954">      int lastDot = name.lastIndexOf('.');</span>
+<span class="nc bnc" id="L955" title="All 2 branches missed.">      if (lastDot &lt; 0) { // short name</span>
+<span class="nc bnc" id="L956" title="All 2 branches missed.">        if (space == null) {</span>
+<span class="nc" id="L957">          space = namespace;</span>
+        }
+<span class="nc bnc" id="L959" title="All 4 branches missed.">        if (space != null &amp;&amp; !&quot;&quot;.equals(space)) {</span>
+<span class="nc" id="L960">          return space + &quot;.&quot; + name;</span>
+        }
+      }
+<span class="nc" id="L963">      return name;</span>
+    }
+  }
+
+  /**
+   * A common API for building types within a context. BaseTypeBuilder can build
+   * all types other than Unions. {@link TypeBuilder} can additionally build
+   * Unions.
+   * &lt;p/&gt;
+   * The builder has two contexts:
+   * &lt;li&gt;A naming context provides a default namespace and allows for previously
+   * defined named types to be referenced from {@link #type(String)}&lt;/li&gt;
+   * &lt;li&gt;A completion context representing the scope that the builder was created
+   * in. A builder created in a nested context (for example,
+   * {@link MapBuilder#values()} will have a completion context assigned by the
+   * {@link MapBuilder}&lt;/li&gt;
+   **/
+  public static class BaseTypeBuilder&lt;R&gt; {
+    private final Completion&lt;R&gt; context;
+    private final NameContext names;
+
+<span class="nc" id="L984">    private BaseTypeBuilder(Completion&lt;R&gt; context, NameContext names) {</span>
+<span class="nc" id="L985">      this.context = context;</span>
+<span class="nc" id="L986">      this.names = names;</span>
+<span class="nc" id="L987">    }</span>
+
+    /** Use the schema provided as the type. **/
+    public final R type(Schema schema) {
+<span class="nc" id="L991">      return context.complete(schema);</span>
+    }
+
+    /**
+     * Look up the type by name. This type must be previously defined in the context
+     * of this builder.
+     * &lt;p/&gt;
+     * The name may be fully qualified or a short name. If it is a short name, the
+     * default namespace of the current context will additionally be searched.
+     **/
+    public final R type(String name) {
+<span class="nc" id="L1002">      return type(name, null);</span>
+    }
+
+    /**
+     * Look up the type by name and namespace. This type must be previously defined
+     * in the context of this builder.
+     * &lt;p/&gt;
+     * The name may be fully qualified or a short name. If it is a fully qualified
+     * name, the namespace provided is ignored. If it is a short name, the namespace
+     * provided is used if not null, else the default namespace of the current
+     * context will be used.
+     **/
+    public final R type(String name, String namespace) {
+<span class="nc" id="L1015">      return type(names.get(name, namespace));</span>
+    }
+
+    /**
+     * A plain boolean type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * booleanBuilder().endBoolean();
+     * &lt;/pre&gt;
+     */
+    public final R booleanType() {
+<span class="nc" id="L1026">      return booleanBuilder().endBoolean();</span>
+    }
+
+    /**
+     * Build a boolean type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #booleanType()}.
+     */
+    public final BooleanBuilder&lt;R&gt; booleanBuilder() {
+<span class="nc" id="L1034">      return BooleanBuilder.create(context, names);</span>
+    }
+
+    /**
+     * A plain int type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * intBuilder().endInt();
+     * &lt;/pre&gt;
+     */
+    public final R intType() {
+<span class="nc" id="L1045">      return intBuilder().endInt();</span>
+    }
+
+    /**
+     * Build an int type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #intType()}.
+     */
+    public final IntBuilder&lt;R&gt; intBuilder() {
+<span class="nc" id="L1053">      return IntBuilder.create(context, names);</span>
+    }
+
+    /**
+     * A plain long type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * longBuilder().endLong();
+     * &lt;/pre&gt;
+     */
+    public final R longType() {
+<span class="nc" id="L1064">      return longBuilder().endLong();</span>
+    }
+
+    /**
+     * Build a long type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #longType()}.
+     */
+    public final LongBuilder&lt;R&gt; longBuilder() {
+<span class="nc" id="L1072">      return LongBuilder.create(context, names);</span>
+    }
+
+    /**
+     * A plain float type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * floatBuilder().endFloat();
+     * &lt;/pre&gt;
+     */
+    public final R floatType() {
+<span class="nc" id="L1083">      return floatBuilder().endFloat();</span>
+    }
+
+    /**
+     * Build a float type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #floatType()}.
+     */
+    public final FloatBuilder&lt;R&gt; floatBuilder() {
+<span class="nc" id="L1091">      return FloatBuilder.create(context, names);</span>
+    }
+
+    /**
+     * A plain double type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * doubleBuilder().endDouble();
+     * &lt;/pre&gt;
+     */
+    public final R doubleType() {
+<span class="nc" id="L1102">      return doubleBuilder().endDouble();</span>
+    }
+
+    /**
+     * Build a double type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #doubleType()}.
+     */
+    public final DoubleBuilder&lt;R&gt; doubleBuilder() {
+<span class="nc" id="L1110">      return DoubleBuilder.create(context, names);</span>
+    }
+
+    /**
+     * A plain string type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * stringBuilder().endString();
+     * &lt;/pre&gt;
+     */
+    public final R stringType() {
+<span class="nc" id="L1121">      return stringBuilder().endString();</span>
+    }
+
+    /**
+     * Build a string type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #stringType()}.
+     */
+    public final StringBldr&lt;R&gt; stringBuilder() {
+<span class="nc" id="L1129">      return StringBldr.create(context, names);</span>
+    }
+
+    /**
+     * A plain bytes type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * bytesBuilder().endBytes();
+     * &lt;/pre&gt;
+     */
+    public final R bytesType() {
+<span class="nc" id="L1140">      return bytesBuilder().endBytes();</span>
+    }
+
+    /**
+     * Build a bytes type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #bytesType()}.
+     */
+    public final BytesBuilder&lt;R&gt; bytesBuilder() {
+<span class="nc" id="L1148">      return BytesBuilder.create(context, names);</span>
+    }
+
+    /**
+     * A plain null type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * nullBuilder().endNull();
+     * &lt;/pre&gt;
+     */
+    public final R nullType() {
+<span class="nc" id="L1159">      return nullBuilder().endNull();</span>
+    }
+
+    /**
+     * Build a null type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #nullType()}.
+     */
+    public final NullBuilder&lt;R&gt; nullBuilder() {
+<span class="nc" id="L1167">      return NullBuilder.create(context, names);</span>
+    }
+
+    /**
+     * Build an Avro map type Example usage:
+     *
+     * &lt;pre&gt;
+     * map().values().intType()
+     * &lt;/pre&gt;
+     *
+     * Equivalent to Avro JSON Schema:
+     *
+     * &lt;pre&gt;
+     * {&quot;type&quot;:&quot;map&quot;, &quot;values&quot;:&quot;int&quot;}
+     * &lt;/pre&gt;
+     **/
+    public final MapBuilder&lt;R&gt; map() {
+<span class="nc" id="L1184">      return MapBuilder.create(context, names);</span>
+    }
+
+    /**
+     * Build an Avro array type Example usage:
+     *
+     * &lt;pre&gt;
+     * array().items().longType()
+     * &lt;/pre&gt;
+     *
+     * Equivalent to Avro JSON Schema:
+     *
+     * &lt;pre&gt;
+     * {&quot;type&quot;:&quot;array&quot;, &quot;values&quot;:&quot;long&quot;}
+     * &lt;/pre&gt;
+     **/
+    public final ArrayBuilder&lt;R&gt; array() {
+<span class="nc" id="L1201">      return ArrayBuilder.create(context, names);</span>
+    }
+
+    /**
+     * Build an Avro fixed type. Example usage:
+     *
+     * &lt;pre&gt;
+     * fixed(&quot;com.foo.IPv4&quot;).size(4)
+     * &lt;/pre&gt;
+     *
+     * Equivalent to Avro JSON Schema:
+     *
+     * &lt;pre&gt;
+     * {&quot;type&quot;:&quot;fixed&quot;, &quot;name&quot;:&quot;com.foo.IPv4&quot;, &quot;size&quot;:4}
+     * &lt;/pre&gt;
+     **/
+    public final FixedBuilder&lt;R&gt; fixed(String name) {
+<span class="nc" id="L1218">      return FixedBuilder.create(context, names, name);</span>
+    }
+
+    /**
+     * Build an Avro enum type. Example usage:
+     *
+     * &lt;pre&gt;
+     * enumeration(&quot;Suits&quot;).namespace(&quot;org.cards&quot;).doc(&quot;card suit names&quot;).defaultSymbol(&quot;HEART&quot;).symbols(&quot;HEART&quot;, &quot;SPADE&quot;,
+     *     &quot;DIAMOND&quot;, &quot;CLUB&quot;)
+     * &lt;/pre&gt;
+     *
+     * Equivalent to Avro JSON Schema:
+     *
+     * &lt;pre&gt;
+     * {&quot;type&quot;:&quot;enum&quot;, &quot;name&quot;:&quot;Suits&quot;, &quot;namespace&quot;:&quot;org.cards&quot;,
+     *  &quot;doc&quot;:&quot;card suit names&quot;, &quot;symbols&quot;:[
+     *    &quot;HEART&quot;, &quot;SPADE&quot;, &quot;DIAMOND&quot;, &quot;CLUB&quot;], &quot;default&quot;:&quot;HEART&quot;}
+     * &lt;/pre&gt;
+     **/
+    public final EnumBuilder&lt;R&gt; enumeration(String name) {
+<span class="nc" id="L1238">      return EnumBuilder.create(context, names, name);</span>
+    }
+
+    /**
+     * Build an Avro record type. Example usage:
+     *
+     * &lt;pre&gt;
+     * record(&quot;com.foo.Foo&quot;).fields().name(&quot;field1&quot;).typeInt().intDefault(1).name(&quot;field2&quot;).typeString().noDefault()
+     *     .name(&quot;field3&quot;).optional().typeFixed(&quot;FooFixed&quot;).size(4).endRecord()
+     * &lt;/pre&gt;
+     *
+     * Equivalent to Avro JSON Schema:
+     *
+     * &lt;pre&gt;
+     * {&quot;type&quot;:&quot;record&quot;, &quot;name&quot;:&quot;com.foo.Foo&quot;, &quot;fields&quot;: [
+     *   {&quot;name&quot;:&quot;field1&quot;, &quot;type&quot;:&quot;int&quot;, &quot;default&quot;:1},
+     *   {&quot;name&quot;:&quot;field2&quot;, &quot;type&quot;:&quot;string&quot;},
+     *   {&quot;name&quot;:&quot;field3&quot;, &quot;type&quot;:[
+     *     null, {&quot;type&quot;:&quot;fixed&quot;, &quot;name&quot;:&quot;FooFixed&quot;, &quot;size&quot;:4}
+     *     ]}
+     *   ]}
+     * &lt;/pre&gt;
+     **/
+    public final RecordBuilder&lt;R&gt; record(String name) {
+<span class="nc" id="L1262">      return RecordBuilder.create(context, names, name);</span>
+    }
+
+    /**
+     * Build an Avro union schema type. Example usage:
+     *
+     * &lt;pre&gt;
+     * unionOf().stringType().and().bytesType().endUnion()
+     * &lt;/pre&gt;
+     **/
+    protected BaseTypeBuilder&lt;UnionAccumulator&lt;R&gt;&gt; unionOf() {
+<span class="nc" id="L1273">      return UnionBuilder.create(context, names);</span>
+    }
+
+    /**
+     * A shortcut for building a union of a type and null.
+     * &lt;p/&gt;
+     * For example, the code snippets below are equivalent:
+     *
+     * &lt;pre&gt;
+     * nullable().booleanType()
+     * &lt;/pre&gt;
+     *
+     * &lt;pre&gt;
+     * unionOf().booleanType().and().nullType().endUnion()
+     * &lt;/pre&gt;
+     **/
+    protected BaseTypeBuilder&lt;R&gt; nullable() {
+<span class="nc" id="L1290">      return new BaseTypeBuilder&lt;&gt;(new NullableCompletion&lt;&gt;(context), names);</span>
+    }
+
+  }
+
+  /**
+   * A Builder for creating any Avro schema type.
+   **/
+  public static final class TypeBuilder&lt;R&gt; extends BaseTypeBuilder&lt;R&gt; {
+    private TypeBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L1300">      super(context, names);</span>
+<span class="nc" id="L1301">    }</span>
+
+    @Override
+    public BaseTypeBuilder&lt;UnionAccumulator&lt;R&gt;&gt; unionOf() {
+<span class="nc" id="L1305">      return super.unionOf();</span>
+    }
+
+    @Override
+    public BaseTypeBuilder&lt;R&gt; nullable() {
+<span class="nc" id="L1310">      return super.nullable();</span>
+    }
+  }
+
+  /** A special builder for unions. Unions cannot nest unions directly **/
+  private static final class UnionBuilder&lt;R&gt; extends BaseTypeBuilder&lt;UnionAccumulator&lt;R&gt;&gt; {
+    private UnionBuilder(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L1317">      this(context, names, Collections.emptyList());</span>
+<span class="nc" id="L1318">    }</span>
+
+    private static &lt;R&gt; UnionBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names) {
+<span class="nc" id="L1321">      return new UnionBuilder&lt;&gt;(context, names);</span>
+    }
+
+    private UnionBuilder(Completion&lt;R&gt; context, NameContext names, List&lt;Schema&gt; schemas) {
+<span class="nc" id="L1325">      super(new UnionCompletion&lt;&gt;(context, names, schemas), names);</span>
+<span class="nc" id="L1326">    }</span>
+  }
+
+  /**
+   * A special Builder for Record fields. The API is very similar to
+   * {@link BaseTypeBuilder}. However, fields have their own names, properties,
+   * and default values.
+   * &lt;p/&gt;
+   * The methods on this class create builder instances that return their control
+   * to the {@link FieldAssembler} of the enclosing record context after
+   * configuring a default for the field.
+   * &lt;p/&gt;
+   * For example, an int field with default value 1:
+   *
+   * &lt;pre&gt;
+   * intSimple().withDefault(1);
+   * &lt;/pre&gt;
+   *
+   * or an array with items that are optional int types:
+   *
+   * &lt;pre&gt;
+   * array().items().optional().intType();
+   * &lt;/pre&gt;
+   */
+  public static class BaseFieldTypeBuilder&lt;R&gt; {
+    protected final FieldBuilder&lt;R&gt; bldr;
+    protected final NameContext names;
+    private final CompletionWrapper wrapper;
+
+<span class="nc" id="L1355">    protected BaseFieldTypeBuilder(FieldBuilder&lt;R&gt; bldr, CompletionWrapper wrapper) {</span>
+<span class="nc" id="L1356">      this.bldr = bldr;</span>
+<span class="nc" id="L1357">      this.names = bldr.names();</span>
+<span class="nc" id="L1358">      this.wrapper = wrapper;</span>
+<span class="nc" id="L1359">    }</span>
+
+    /**
+     * A plain boolean type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * booleanBuilder().endBoolean();
+     * &lt;/pre&gt;
+     */
+    public final BooleanDefault&lt;R&gt; booleanType() {
+<span class="nc" id="L1369">      return booleanBuilder().endBoolean();</span>
+    }
+
+    /**
+     * Build a boolean type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #booleanType()}.
+     */
+    public final BooleanBuilder&lt;BooleanDefault&lt;R&gt;&gt; booleanBuilder() {
+<span class="nc" id="L1377">      return BooleanBuilder.create(wrap(new BooleanDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain int type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * intBuilder().endInt();
+     * &lt;/pre&gt;
+     */
+    public final IntDefault&lt;R&gt; intType() {
+<span class="nc" id="L1388">      return intBuilder().endInt();</span>
+    }
+
+    /**
+     * Build an int type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #intType()}.
+     */
+    public final IntBuilder&lt;IntDefault&lt;R&gt;&gt; intBuilder() {
+<span class="nc" id="L1396">      return IntBuilder.create(wrap(new IntDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain long type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * longBuilder().endLong();
+     * &lt;/pre&gt;
+     */
+    public final LongDefault&lt;R&gt; longType() {
+<span class="nc" id="L1407">      return longBuilder().endLong();</span>
+    }
+
+    /**
+     * Build a long type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #longType()}.
+     */
+    public final LongBuilder&lt;LongDefault&lt;R&gt;&gt; longBuilder() {
+<span class="nc" id="L1415">      return LongBuilder.create(wrap(new LongDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain float type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * floatBuilder().endFloat();
+     * &lt;/pre&gt;
+     */
+    public final FloatDefault&lt;R&gt; floatType() {
+<span class="nc" id="L1426">      return floatBuilder().endFloat();</span>
+    }
+
+    /**
+     * Build a float type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #floatType()}.
+     */
+    public final FloatBuilder&lt;FloatDefault&lt;R&gt;&gt; floatBuilder() {
+<span class="nc" id="L1434">      return FloatBuilder.create(wrap(new FloatDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain double type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * doubleBuilder().endDouble();
+     * &lt;/pre&gt;
+     */
+    public final DoubleDefault&lt;R&gt; doubleType() {
+<span class="nc" id="L1445">      return doubleBuilder().endDouble();</span>
+    }
+
+    /**
+     * Build a double type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #doubleType()}.
+     */
+    public final DoubleBuilder&lt;DoubleDefault&lt;R&gt;&gt; doubleBuilder() {
+<span class="nc" id="L1453">      return DoubleBuilder.create(wrap(new DoubleDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain string type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * stringBuilder().endString();
+     * &lt;/pre&gt;
+     */
+    public final StringDefault&lt;R&gt; stringType() {
+<span class="nc" id="L1464">      return stringBuilder().endString();</span>
+    }
+
+    /**
+     * Build a string type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #stringType()}.
+     */
+    public final StringBldr&lt;StringDefault&lt;R&gt;&gt; stringBuilder() {
+<span class="nc" id="L1472">      return StringBldr.create(wrap(new StringDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain bytes type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * bytesBuilder().endBytes();
+     * &lt;/pre&gt;
+     */
+    public final BytesDefault&lt;R&gt; bytesType() {
+<span class="nc" id="L1483">      return bytesBuilder().endBytes();</span>
+    }
+
+    /**
+     * Build a bytes type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #bytesType()}.
+     */
+    public final BytesBuilder&lt;BytesDefault&lt;R&gt;&gt; bytesBuilder() {
+<span class="nc" id="L1491">      return BytesBuilder.create(wrap(new BytesDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain null type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * nullBuilder().endNull();
+     * &lt;/pre&gt;
+     */
+    public final NullDefault&lt;R&gt; nullType() {
+<span class="nc" id="L1502">      return nullBuilder().endNull();</span>
+    }
+
+    /**
+     * Build a null type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #nullType()}.
+     */
+    public final NullBuilder&lt;NullDefault&lt;R&gt;&gt; nullBuilder() {
+<span class="nc" id="L1510">      return NullBuilder.create(wrap(new NullDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /** Build an Avro map type **/
+    public final MapBuilder&lt;MapDefault&lt;R&gt;&gt; map() {
+<span class="nc" id="L1515">      return MapBuilder.create(wrap(new MapDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /** Build an Avro array type **/
+    public final ArrayBuilder&lt;ArrayDefault&lt;R&gt;&gt; array() {
+<span class="nc" id="L1520">      return ArrayBuilder.create(wrap(new ArrayDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /** Build an Avro fixed type. **/
+    public final FixedBuilder&lt;FixedDefault&lt;R&gt;&gt; fixed(String name) {
+<span class="nc" id="L1525">      return FixedBuilder.create(wrap(new FixedDefault&lt;&gt;(bldr)), names, name);</span>
+    }
+
+    /** Build an Avro enum type. **/
+    public final EnumBuilder&lt;EnumDefault&lt;R&gt;&gt; enumeration(String name) {
+<span class="nc" id="L1530">      return EnumBuilder.create(wrap(new EnumDefault&lt;&gt;(bldr)), names, name);</span>
+    }
+
+    /** Build an Avro record type. **/
+    public final RecordBuilder&lt;RecordDefault&lt;R&gt;&gt; record(String name) {
+<span class="nc" id="L1535">      return RecordBuilder.create(wrap(new RecordDefault&lt;&gt;(bldr)), names, name);</span>
+    }
+
+    private &lt;C&gt; Completion&lt;C&gt; wrap(Completion&lt;C&gt; completion) {
+<span class="nc bnc" id="L1539" title="All 2 branches missed.">      if (wrapper != null) {</span>
+<span class="nc" id="L1540">        return wrapper.wrap(completion);</span>
+      }
+<span class="nc" id="L1542">      return completion;</span>
+    }
+  }
+
+  /**
+   * FieldTypeBuilder adds {@link #unionOf()}, {@link #nullable()}, and
+   * {@link #optional()} to BaseFieldTypeBuilder.
+   **/
+  public static final class FieldTypeBuilder&lt;R&gt; extends BaseFieldTypeBuilder&lt;R&gt; {
+    private FieldTypeBuilder(FieldBuilder&lt;R&gt; bldr) {
+<span class="nc" id="L1552">      super(bldr, null);</span>
+<span class="nc" id="L1553">    }</span>
+
+    /** Build an Avro union schema type. **/
+    public UnionFieldTypeBuilder&lt;R&gt; unionOf() {
+<span class="nc" id="L1557">      return new UnionFieldTypeBuilder&lt;&gt;(bldr);</span>
+    }
+
+    /**
+     * A shortcut for building a union of a type and null, with an optional default
+     * value of the non-null type.
+     * &lt;p/&gt;
+     * For example, the two code snippets below are equivalent:
+     *
+     * &lt;pre&gt;
+     * nullable().booleanType().booleanDefault(true)
+     * &lt;/pre&gt;
+     *
+     * &lt;pre&gt;
+     * unionOf().booleanType().and().nullType().endUnion().booleanDefault(true)
+     * &lt;/pre&gt;
+     **/
+    public BaseFieldTypeBuilder&lt;R&gt; nullable() {
+<span class="nc" id="L1575">      return new BaseFieldTypeBuilder&lt;&gt;(bldr, new NullableCompletionWrapper());</span>
+    }
+
+    /**
+     * A shortcut for building a union of null and a type, with a null default.
+     * &lt;p/&gt;
+     * For example, the two code snippets below are equivalent:
+     *
+     * &lt;pre&gt;
+     * optional().booleanType()
+     * &lt;/pre&gt;
+     *
+     * &lt;pre&gt;
+     * unionOf().nullType().and().booleanType().endUnion().nullDefault()
+     * &lt;/pre&gt;
+     */
+    public BaseTypeBuilder&lt;FieldAssembler&lt;R&gt;&gt; optional() {
+<span class="nc" id="L1592">      return new BaseTypeBuilder&lt;&gt;(new OptionalCompletion&lt;&gt;(bldr), names);</span>
+    }
+  }
+
+  /**
+   * Builder for a union field. The first type in the union corresponds to the
+   * possible default value type.
+   */
+  public static final class UnionFieldTypeBuilder&lt;R&gt; {
+    private final FieldBuilder&lt;R&gt; bldr;
+    private final NameContext names;
+
+<span class="nc" id="L1604">    private UnionFieldTypeBuilder(FieldBuilder&lt;R&gt; bldr) {</span>
+<span class="nc" id="L1605">      this.bldr = bldr;</span>
+<span class="nc" id="L1606">      this.names = bldr.names();</span>
+<span class="nc" id="L1607">    }</span>
+
+    /**
+     * A plain boolean type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * booleanBuilder().endBoolean();
+     * &lt;/pre&gt;
+     */
+    public UnionAccumulator&lt;BooleanDefault&lt;R&gt;&gt; booleanType() {
+<span class="nc" id="L1617">      return booleanBuilder().endBoolean();</span>
+    }
+
+    /**
+     * Build a boolean type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #booleanType()}.
+     */
+    public BooleanBuilder&lt;UnionAccumulator&lt;BooleanDefault&lt;R&gt;&gt;&gt; booleanBuilder() {
+<span class="nc" id="L1625">      return BooleanBuilder.create(completion(new BooleanDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain int type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * intBuilder().endInt();
+     * &lt;/pre&gt;
+     */
+    public UnionAccumulator&lt;IntDefault&lt;R&gt;&gt; intType() {
+<span class="nc" id="L1636">      return intBuilder().endInt();</span>
+    }
+
+    /**
+     * Build an int type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #intType()}.
+     */
+    public IntBuilder&lt;UnionAccumulator&lt;IntDefault&lt;R&gt;&gt;&gt; intBuilder() {
+<span class="nc" id="L1644">      return IntBuilder.create(completion(new IntDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain long type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * longBuilder().endLong();
+     * &lt;/pre&gt;
+     */
+    public UnionAccumulator&lt;LongDefault&lt;R&gt;&gt; longType() {
+<span class="nc" id="L1655">      return longBuilder().endLong();</span>
+    }
+
+    /**
+     * Build a long type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #longType()}.
+     */
+    public LongBuilder&lt;UnionAccumulator&lt;LongDefault&lt;R&gt;&gt;&gt; longBuilder() {
+<span class="nc" id="L1663">      return LongBuilder.create(completion(new LongDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain float type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * floatBuilder().endFloat();
+     * &lt;/pre&gt;
+     */
+    public UnionAccumulator&lt;FloatDefault&lt;R&gt;&gt; floatType() {
+<span class="nc" id="L1674">      return floatBuilder().endFloat();</span>
+    }
+
+    /**
+     * Build a float type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #floatType()}.
+     */
+    public FloatBuilder&lt;UnionAccumulator&lt;FloatDefault&lt;R&gt;&gt;&gt; floatBuilder() {
+<span class="nc" id="L1682">      return FloatBuilder.create(completion(new FloatDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain double type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * doubleBuilder().endDouble();
+     * &lt;/pre&gt;
+     */
+    public UnionAccumulator&lt;DoubleDefault&lt;R&gt;&gt; doubleType() {
+<span class="nc" id="L1693">      return doubleBuilder().endDouble();</span>
+    }
+
+    /**
+     * Build a double type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #doubleType()}.
+     */
+    public DoubleBuilder&lt;UnionAccumulator&lt;DoubleDefault&lt;R&gt;&gt;&gt; doubleBuilder() {
+<span class="nc" id="L1701">      return DoubleBuilder.create(completion(new DoubleDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain string type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * stringBuilder().endString();
+     * &lt;/pre&gt;
+     */
+    public UnionAccumulator&lt;StringDefault&lt;R&gt;&gt; stringType() {
+<span class="nc" id="L1712">      return stringBuilder().endString();</span>
+    }
+
+    /**
+     * Build a string type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #stringType()}.
+     */
+    public StringBldr&lt;UnionAccumulator&lt;StringDefault&lt;R&gt;&gt;&gt; stringBuilder() {
+<span class="nc" id="L1720">      return StringBldr.create(completion(new StringDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain bytes type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * bytesBuilder().endBytes();
+     * &lt;/pre&gt;
+     */
+    public UnionAccumulator&lt;BytesDefault&lt;R&gt;&gt; bytesType() {
+<span class="nc" id="L1731">      return bytesBuilder().endBytes();</span>
+    }
+
+    /**
+     * Build a bytes type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #bytesType()}.
+     */
+    public BytesBuilder&lt;UnionAccumulator&lt;BytesDefault&lt;R&gt;&gt;&gt; bytesBuilder() {
+<span class="nc" id="L1739">      return BytesBuilder.create(completion(new BytesDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /**
+     * A plain null type without custom properties. This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * nullBuilder().endNull();
+     * &lt;/pre&gt;
+     */
+    public UnionAccumulator&lt;NullDefault&lt;R&gt;&gt; nullType() {
+<span class="nc" id="L1750">      return nullBuilder().endNull();</span>
+    }
+
+    /**
+     * Build a null type that can set custom properties. If custom properties are
+     * not needed it is simpler to use {@link #nullType()}.
+     */
+    public NullBuilder&lt;UnionAccumulator&lt;NullDefault&lt;R&gt;&gt;&gt; nullBuilder() {
+<span class="nc" id="L1758">      return NullBuilder.create(completion(new NullDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /** Build an Avro map type **/
+    public MapBuilder&lt;UnionAccumulator&lt;MapDefault&lt;R&gt;&gt;&gt; map() {
+<span class="nc" id="L1763">      return MapBuilder.create(completion(new MapDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /** Build an Avro array type **/
+    public ArrayBuilder&lt;UnionAccumulator&lt;ArrayDefault&lt;R&gt;&gt;&gt; array() {
+<span class="nc" id="L1768">      return ArrayBuilder.create(completion(new ArrayDefault&lt;&gt;(bldr)), names);</span>
+    }
+
+    /** Build an Avro fixed type. **/
+    public FixedBuilder&lt;UnionAccumulator&lt;FixedDefault&lt;R&gt;&gt;&gt; fixed(String name) {
+<span class="nc" id="L1773">      return FixedBuilder.create(completion(new FixedDefault&lt;&gt;(bldr)), names, name);</span>
+    }
+
+    /** Build an Avro enum type. **/
+    public EnumBuilder&lt;UnionAccumulator&lt;EnumDefault&lt;R&gt;&gt;&gt; enumeration(String name) {
+<span class="nc" id="L1778">      return EnumBuilder.create(completion(new EnumDefault&lt;&gt;(bldr)), names, name);</span>
+    }
+
+    /** Build an Avro record type. **/
+    public RecordBuilder&lt;UnionAccumulator&lt;RecordDefault&lt;R&gt;&gt;&gt; record(String name) {
+<span class="nc" id="L1783">      return RecordBuilder.create(completion(new RecordDefault&lt;&gt;(bldr)), names, name);</span>
+    }
+
+    private &lt;C&gt; UnionCompletion&lt;C&gt; completion(Completion&lt;C&gt; context) {
+<span class="nc" id="L1787">      return new UnionCompletion&lt;&gt;(context, names, Collections.emptyList());</span>
+    }
+  }
+
+  public final static class RecordBuilder&lt;R&gt; extends NamespacedBuilder&lt;R, RecordBuilder&lt;R&gt;&gt; {
+    private RecordBuilder(Completion&lt;R&gt; context, NameContext names, String name) {
+<span class="nc" id="L1793">      super(context, names, name);</span>
+<span class="nc" id="L1794">    }</span>
+
+    private static &lt;R&gt; RecordBuilder&lt;R&gt; create(Completion&lt;R&gt; context, NameContext names, String name) {
+<span class="nc" id="L1797">      return new RecordBuilder&lt;&gt;(context, names, name);</span>
+    }
+
+    @Override
+    protected RecordBuilder&lt;R&gt; self() {
+<span class="nc" id="L1802">      return this;</span>
+    }
+
+    public FieldAssembler&lt;R&gt; fields() {
+<span class="nc" id="L1806">      Schema record = Schema.createRecord(name(), doc(), space(), false);</span>
+      // place the record in the name context, fields yet to be set.
+<span class="nc" id="L1808">      completeSchema(record);</span>
+<span class="nc" id="L1809">      return new FieldAssembler&lt;&gt;(context(), names().namespace(record.getNamespace()), record);</span>
+    }
+  }
+
+  public final static class FieldAssembler&lt;R&gt; {
+<span class="nc" id="L1814">    private final List&lt;Field&gt; fields = new ArrayList&lt;&gt;();</span>
+    private final Completion&lt;R&gt; context;
+    private final NameContext names;
+    private final Schema record;
+
+<span class="nc" id="L1819">    private FieldAssembler(Completion&lt;R&gt; context, NameContext names, Schema record) {</span>
+<span class="nc" id="L1820">      this.context = context;</span>
+<span class="nc" id="L1821">      this.names = names;</span>
+<span class="nc" id="L1822">      this.record = record;</span>
+<span class="nc" id="L1823">    }</span>
+
+    /**
+     * Add a field with the given name.
+     *
+     * @return A {@link FieldBuilder} for the given name.
+     */
+    public FieldBuilder&lt;R&gt; name(String fieldName) {
+<span class="nc" id="L1831">      return new FieldBuilder&lt;&gt;(this, names, fieldName);</span>
+    }
+
+    /**
+     * Shortcut for creating a boolean field with the given name and no default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().booleanType().noDefault()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; requiredBoolean(String fieldName) {
+<span class="nc" id="L1844">      return name(fieldName).type().booleanType().noDefault();</span>
+    }
+
+    /**
+     * Shortcut for creating an optional boolean field: a union of null and boolean
+     * with null default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().optional().booleanType()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; optionalBoolean(String fieldName) {
+<span class="nc" id="L1858">      return name(fieldName).type().optional().booleanType();</span>
+    }
+
+    /**
+     * Shortcut for creating a nullable boolean field: a union of boolean and null
+     * with an boolean default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().nullable().booleanType().booleanDefault(defaultVal)
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; nullableBoolean(String fieldName, boolean defaultVal) {
+<span class="nc" id="L1872">      return name(fieldName).type().nullable().booleanType().booleanDefault(defaultVal);</span>
+    }
+
+    /**
+     * Shortcut for creating an int field with the given name and no default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().intType().noDefault()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; requiredInt(String fieldName) {
+<span class="nc" id="L1885">      return name(fieldName).type().intType().noDefault();</span>
+    }
+
+    /**
+     * Shortcut for creating an optional int field: a union of null and int with
+     * null default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().optional().intType()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; optionalInt(String fieldName) {
+<span class="nc" id="L1899">      return name(fieldName).type().optional().intType();</span>
+    }
+
+    /**
+     * Shortcut for creating a nullable int field: a union of int and null with an
+     * int default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().nullable().intType().intDefault(defaultVal)
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; nullableInt(String fieldName, int defaultVal) {
+<span class="nc" id="L1913">      return name(fieldName).type().nullable().intType().intDefault(defaultVal);</span>
+    }
+
+    /**
+     * Shortcut for creating a long field with the given name and no default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().longType().noDefault()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; requiredLong(String fieldName) {
+<span class="nc" id="L1926">      return name(fieldName).type().longType().noDefault();</span>
+    }
+
+    /**
+     * Shortcut for creating an optional long field: a union of null and long with
+     * null default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().optional().longType()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; optionalLong(String fieldName) {
+<span class="nc" id="L1940">      return name(fieldName).type().optional().longType();</span>
+    }
+
+    /**
+     * Shortcut for creating a nullable long field: a union of long and null with a
+     * long default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().nullable().longType().longDefault(defaultVal)
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; nullableLong(String fieldName, long defaultVal) {
+<span class="nc" id="L1954">      return name(fieldName).type().nullable().longType().longDefault(defaultVal);</span>
+    }
+
+    /**
+     * Shortcut for creating a float field with the given name and no default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().floatType().noDefault()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; requiredFloat(String fieldName) {
+<span class="nc" id="L1967">      return name(fieldName).type().floatType().noDefault();</span>
+    }
+
+    /**
+     * Shortcut for creating an optional float field: a union of null and float with
+     * null default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().optional().floatType()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; optionalFloat(String fieldName) {
+<span class="nc" id="L1981">      return name(fieldName).type().optional().floatType();</span>
+    }
+
+    /**
+     * Shortcut for creating a nullable float field: a union of float and null with
+     * a float default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().nullable().floatType().floatDefault(defaultVal)
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; nullableFloat(String fieldName, float defaultVal) {
+<span class="nc" id="L1995">      return name(fieldName).type().nullable().floatType().floatDefault(defaultVal);</span>
+    }
+
+    /**
+     * Shortcut for creating a double field with the given name and no default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().doubleType().noDefault()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; requiredDouble(String fieldName) {
+<span class="nc" id="L2008">      return name(fieldName).type().doubleType().noDefault();</span>
+    }
+
+    /**
+     * Shortcut for creating an optional double field: a union of null and double
+     * with null default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().optional().doubleType()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; optionalDouble(String fieldName) {
+<span class="nc" id="L2022">      return name(fieldName).type().optional().doubleType();</span>
+    }
+
+    /**
+     * Shortcut for creating a nullable double field: a union of double and null
+     * with a double default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().nullable().doubleType().doubleDefault(defaultVal)
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; nullableDouble(String fieldName, double defaultVal) {
+<span class="nc" id="L2036">      return name(fieldName).type().nullable().doubleType().doubleDefault(defaultVal);</span>
+    }
+
+    /**
+     * Shortcut for creating a string field with the given name and no default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().stringType().noDefault()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; requiredString(String fieldName) {
+<span class="nc" id="L2049">      return name(fieldName).type().stringType().noDefault();</span>
+    }
+
+    /**
+     * Shortcut for creating an optional string field: a union of null and string
+     * with null default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().optional().stringType()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; optionalString(String fieldName) {
+<span class="nc" id="L2063">      return name(fieldName).type().optional().stringType();</span>
+    }
+
+    /**
+     * Shortcut for creating a nullable string field: a union of string and null
+     * with a string default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().nullable().stringType().stringDefault(defaultVal)
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; nullableString(String fieldName, String defaultVal) {
+<span class="nc" id="L2077">      return name(fieldName).type().nullable().stringType().stringDefault(defaultVal);</span>
+    }
+
+    /**
+     * Shortcut for creating a bytes field with the given name and no default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().bytesType().noDefault()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; requiredBytes(String fieldName) {
+<span class="nc" id="L2090">      return name(fieldName).type().bytesType().noDefault();</span>
+    }
+
+    /**
+     * Shortcut for creating an optional bytes field: a union of null and bytes with
+     * null default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().optional().bytesType()
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; optionalBytes(String fieldName) {
+<span class="nc" id="L2104">      return name(fieldName).type().optional().bytesType();</span>
+    }
+
+    /**
+     * Shortcut for creating a nullable bytes field: a union of bytes and null with
+     * a bytes default.
+     * &lt;p/&gt;
+     * This is equivalent to:
+     *
+     * &lt;pre&gt;
+     * name(fieldName).type().nullable().bytesType().bytesDefault(defaultVal)
+     * &lt;/pre&gt;
+     */
+    public FieldAssembler&lt;R&gt; nullableBytes(String fieldName, byte[] defaultVal) {
+<span class="nc" id="L2118">      return name(fieldName).type().nullable().bytesType().bytesDefault(defaultVal);</span>
+    }
+
+    /**
+     * End adding fields to this record, returning control to the context that this
+     * record builder was created in.
+     */
+    public R endRecord() {
+<span class="nc" id="L2126">      record.setFields(fields);</span>
+<span class="nc" id="L2127">      return context.complete(record);</span>
+    }
+
+    private FieldAssembler&lt;R&gt; addField(Field field) {
+<span class="nc" id="L2131">      fields.add(field);</span>
+<span class="nc" id="L2132">      return this;</span>
+    }
+
+  }
+
+  /**
+   * Builds a Field in the context of a {@link FieldAssembler}.
+   *
+   * Usage is to first configure any of the optional parameters and then to call
+   * one of the type methods to complete the field. For example
+   *
+   * &lt;pre&gt;
+   *   .namespace(&quot;org.apache.example&quot;).orderDescending().type()
+   * &lt;/pre&gt;
+   *
+   * Optional parameters for a field are namespace, doc, order, and aliases.
+   */
+  public final static class FieldBuilder&lt;R&gt; extends NamedBuilder&lt;FieldBuilder&lt;R&gt;&gt; {
+    private final FieldAssembler&lt;R&gt; fields;
+<span class="nc" id="L2151">    private Schema.Field.Order order = Schema.Field.Order.ASCENDING;</span>
+
+    private FieldBuilder(FieldAssembler&lt;R&gt; fields, NameContext names, String name) {
+<span class="nc" id="L2154">      super(names, name);</span>
+<span class="nc" id="L2155">      this.fields = fields;</span>
+<span class="nc" id="L2156">    }</span>
+
+    /** Set this field to have ascending order. Ascending is the default **/
+    public FieldBuilder&lt;R&gt; orderAscending() {
+<span class="nc" id="L2160">      order = Schema.Field.Order.ASCENDING;</span>
+<span class="nc" id="L2161">      return self();</span>
+    }
+
+    /** Set this field to have descending order. Descending is the default **/
+    public FieldBuilder&lt;R&gt; orderDescending() {
+<span class="nc" id="L2166">      order = Schema.Field.Order.DESCENDING;</span>
+<span class="nc" id="L2167">      return self();</span>
+    }
+
+    /** Set this field to ignore order. **/
+    public FieldBuilder&lt;R&gt; orderIgnore() {
+<span class="nc" id="L2172">      order = Schema.Field.Order.IGNORE;</span>
+<span class="nc" id="L2173">      return self();</span>
+    }
+
+    /**
+     * Final step in configuring this field, finalizing name, namespace, alias, and
+     * order.
+     *
+     * @return A builder for the field's type and default value.
+     */
+    public FieldTypeBuilder&lt;R&gt; type() {
+<span class="nc" id="L2183">      return new FieldTypeBuilder&lt;&gt;(this);</span>
+    }
+
+    /**
+     * Final step in configuring this field, finalizing name, namespace, alias, and
+     * order. Sets the field's type to the provided schema, returns a
+     * {@link GenericDefault}.
+     */
+    public GenericDefault&lt;R&gt; type(Schema type) {
+<span class="nc" id="L2192">      return new GenericDefault&lt;&gt;(this, type);</span>
+    }
+
+    /**
+     * Final step in configuring this field, finalizing name, namespace, alias, and
+     * order. Sets the field's type to the schema by name reference.
+     * &lt;p/&gt;
+     * The name must correspond with a named schema that has already been created in
+     * the context of this builder. The name may be a fully qualified name, or a
+     * short name. If it is a short name, the namespace context of this builder will
+     * be used.
+     * &lt;p/&gt;
+     * The name and namespace context rules are the same as the Avro schema JSON
+     * specification.
+     */
+    public GenericDefault&lt;R&gt; type(String name) {
+<span class="nc" id="L2208">      return type(name, null);</span>
+    }
+
+    /**
+     * Final step in configuring this field, finalizing name, namespace, alias, and
+     * order. Sets the field's type to the schema by name reference.
+     * &lt;p/&gt;
+     * The name must correspond with a named schema that has already been created in
+     * the context of this builder. The name may be a fully qualified name, or a
+     * short name. If it is a full name, the namespace is ignored. If it is a short
+     * name, the namespace provided is used. If the namespace provided is null, the
+     * namespace context of this builder will be used.
+     * &lt;p/&gt;
+     * The name and namespace context rules are the same as the Avro schema JSON
+     * specification.
+     */
+    public GenericDefault&lt;R&gt; type(String name, String namespace) {
+<span class="nc" id="L2225">      Schema schema = names().get(name, namespace);</span>
+<span class="nc" id="L2226">      return type(schema);</span>
+    }
+
+    private FieldAssembler&lt;R&gt; completeField(Schema schema, Object defaultVal) {
+<span class="nc bnc" id="L2230" title="All 2 branches missed.">      JsonNode defaultNode = defaultVal == null ? NullNode.getInstance() : toJsonNode(defaultVal);</span>
+<span class="nc" id="L2231">      return completeField(schema, defaultNode);</span>
+    }
+
+    private FieldAssembler&lt;R&gt; completeField(Schema schema) {
+<span class="nc" id="L2235">      return completeField(schema, (JsonNode) null);</span>
+    }
+
+    private FieldAssembler&lt;R&gt; completeField(Schema schema, JsonNode defaultVal) {
+<span class="nc" id="L2239">      Field field = new Field(name(), schema, doc(), defaultVal, true, order);</span>
+<span class="nc" id="L2240">      addPropsTo(field);</span>
+<span class="nc" id="L2241">      addAliasesTo(field);</span>
+<span class="nc" id="L2242">      return fields.addField(field);</span>
+    }
+
+    @Override
+    protected FieldBuilder&lt;R&gt; self() {
+<span class="nc" id="L2247">      return this;</span>
+    }
+  }
+
+  /** Abstract base class for field defaults. **/
+  public static abstract class FieldDefault&lt;R, S extends FieldDefault&lt;R, S&gt;&gt; extends Completion&lt;S&gt; {
+    private final FieldBuilder&lt;R&gt; field;
+    private Schema schema;
+
+<span class="nc" id="L2256">    FieldDefault(FieldBuilder&lt;R&gt; field) {</span>
+<span class="nc" id="L2257">      this.field = field;</span>
+<span class="nc" id="L2258">    }</span>
+
+    /** Completes this field with no default value **/
+    public final FieldAssembler&lt;R&gt; noDefault() {
+<span class="nc" id="L2262">      return field.completeField(schema);</span>
+    }
+
+    private FieldAssembler&lt;R&gt; usingDefault(Object defaultVal) {
+<span class="nc" id="L2266">      return field.completeField(schema, defaultVal);</span>
+    }
+
+    @Override
+    final S complete(Schema schema) {
+<span class="nc" id="L2271">      this.schema = schema;</span>
+<span class="nc" id="L2272">      return self();</span>
+    }
+
+    abstract S self();
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class BooleanDefault&lt;R&gt; extends FieldDefault&lt;R, BooleanDefault&lt;R&gt;&gt; {
+    private BooleanDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2281">      super(field);</span>
+<span class="nc" id="L2282">    }</span>
+
+    /** Completes this field with the default value provided **/
+    public final FieldAssembler&lt;R&gt; booleanDefault(boolean defaultVal) {
+<span class="nc" id="L2286">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final BooleanDefault&lt;R&gt; self() {
+<span class="nc" id="L2291">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class IntDefault&lt;R&gt; extends FieldDefault&lt;R, IntDefault&lt;R&gt;&gt; {
+    private IntDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2298">      super(field);</span>
+<span class="nc" id="L2299">    }</span>
+
+    /** Completes this field with the default value provided **/
+    public final FieldAssembler&lt;R&gt; intDefault(int defaultVal) {
+<span class="nc" id="L2303">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final IntDefault&lt;R&gt; self() {
+<span class="nc" id="L2308">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class LongDefault&lt;R&gt; extends FieldDefault&lt;R, LongDefault&lt;R&gt;&gt; {
+    private LongDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2315">      super(field);</span>
+<span class="nc" id="L2316">    }</span>
+
+    /** Completes this field with the default value provided **/
+    public final FieldAssembler&lt;R&gt; longDefault(long defaultVal) {
+<span class="nc" id="L2320">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final LongDefault&lt;R&gt; self() {
+<span class="nc" id="L2325">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class FloatDefault&lt;R&gt; extends FieldDefault&lt;R, FloatDefault&lt;R&gt;&gt; {
+    private FloatDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2332">      super(field);</span>
+<span class="nc" id="L2333">    }</span>
+
+    /** Completes this field with the default value provided **/
+    public final FieldAssembler&lt;R&gt; floatDefault(float defaultVal) {
+<span class="nc" id="L2337">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final FloatDefault&lt;R&gt; self() {
+<span class="nc" id="L2342">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class DoubleDefault&lt;R&gt; extends FieldDefault&lt;R, DoubleDefault&lt;R&gt;&gt; {
+    private DoubleDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2349">      super(field);</span>
+<span class="nc" id="L2350">    }</span>
+
+    /** Completes this field with the default value provided **/
+    public final FieldAssembler&lt;R&gt; doubleDefault(double defaultVal) {
+<span class="nc" id="L2354">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final DoubleDefault&lt;R&gt; self() {
+<span class="nc" id="L2359">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class StringDefault&lt;R&gt; extends FieldDefault&lt;R, StringDefault&lt;R&gt;&gt; {
+    private StringDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2366">      super(field);</span>
+<span class="nc" id="L2367">    }</span>
+
+    /** Completes this field with the default value provided. Cannot be null. **/
+    public final FieldAssembler&lt;R&gt; stringDefault(String defaultVal) {
+<span class="nc" id="L2371">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final StringDefault&lt;R&gt; self() {
+<span class="nc" id="L2376">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class BytesDefault&lt;R&gt; extends FieldDefault&lt;R, BytesDefault&lt;R&gt;&gt; {
+    private BytesDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2383">      super(field);</span>
+<span class="nc" id="L2384">    }</span>
+
+    /** Completes this field with the default value provided, cannot be null **/
+    public final FieldAssembler&lt;R&gt; bytesDefault(byte[] defaultVal) {
+<span class="nc" id="L2388">      return super.usingDefault(ByteBuffer.wrap(defaultVal));</span>
+    }
+
+    /** Completes this field with the default value provided, cannot be null **/
+    public final FieldAssembler&lt;R&gt; bytesDefault(ByteBuffer defaultVal) {
+<span class="nc" id="L2393">      return super.usingDefault(defaultVal);</span>
+    }
+
+    /**
+     * Completes this field with the default value provided, cannot be null. The
+     * string is interpreted as a byte[], with each character code point value
+     * equalling the byte value, as in the Avro spec JSON default.
+     **/
+    public final FieldAssembler&lt;R&gt; bytesDefault(String defaultVal) {
+<span class="nc" id="L2402">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final BytesDefault&lt;R&gt; self() {
+<span class="nc" id="L2407">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class NullDefault&lt;R&gt; extends FieldDefault&lt;R, NullDefault&lt;R&gt;&gt; {
+    private NullDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2414">      super(field);</span>
+<span class="nc" id="L2415">    }</span>
+
+    /** Completes this field with a default value of null **/
+    public final FieldAssembler&lt;R&gt; nullDefault() {
+<span class="nc" id="L2419">      return super.usingDefault(null);</span>
+    }
+
+    @Override
+    final NullDefault&lt;R&gt; self() {
+<span class="nc" id="L2424">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class MapDefault&lt;R&gt; extends FieldDefault&lt;R, MapDefault&lt;R&gt;&gt; {
+    private MapDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2431">      super(field);</span>
+<span class="nc" id="L2432">    }</span>
+
+    /** Completes this field with the default value provided, cannot be null **/
+    public final &lt;K, V&gt; FieldAssembler&lt;R&gt; mapDefault(Map&lt;K, V&gt; defaultVal) {
+<span class="nc" id="L2436">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final MapDefault&lt;R&gt; self() {
+<span class="nc" id="L2441">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class ArrayDefault&lt;R&gt; extends FieldDefault&lt;R, ArrayDefault&lt;R&gt;&gt; {
+    private ArrayDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2448">      super(field);</span>
+<span class="nc" id="L2449">    }</span>
+
+    /** Completes this field with the default value provided, cannot be null **/
+    public final &lt;V&gt; FieldAssembler&lt;R&gt; arrayDefault(List&lt;V&gt; defaultVal) {
+<span class="nc" id="L2453">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final ArrayDefault&lt;R&gt; self() {
+<span class="nc" id="L2458">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class FixedDefault&lt;R&gt; extends FieldDefault&lt;R, FixedDefault&lt;R&gt;&gt; {
+    private FixedDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2465">      super(field);</span>
+<span class="nc" id="L2466">    }</span>
+
+    /** Completes this field with the default value provided, cannot be null **/
+    public final FieldAssembler&lt;R&gt; fixedDefault(byte[] defaultVal) {
+<span class="nc" id="L2470">      return super.usingDefault(ByteBuffer.wrap(defaultVal));</span>
+    }
+
+    /** Completes this field with the default value provided, cannot be null **/
+    public final FieldAssembler&lt;R&gt; fixedDefault(ByteBuffer defaultVal) {
+<span class="nc" id="L2475">      return super.usingDefault(defaultVal);</span>
+    }
+
+    /**
+     * Completes this field with the default value provided, cannot be null. The
+     * string is interpreted as a byte[], with each character code point value
+     * equalling the byte value, as in the Avro spec JSON default.
+     **/
+    public final FieldAssembler&lt;R&gt; fixedDefault(String defaultVal) {
+<span class="nc" id="L2484">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final FixedDefault&lt;R&gt; self() {
+<span class="nc" id="L2489">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class EnumDefault&lt;R&gt; extends FieldDefault&lt;R, EnumDefault&lt;R&gt;&gt; {
+    private EnumDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2496">      super(field);</span>
+<span class="nc" id="L2497">    }</span>
+
+    /** Completes this field with the default value provided, cannot be null **/
+    public final FieldAssembler&lt;R&gt; enumDefault(String defaultVal) {
+<span class="nc" id="L2501">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final EnumDefault&lt;R&gt; self() {
+<span class="nc" id="L2506">      return this;</span>
+    }
+  }
+
+  /** Choose whether to use a default value for the field or not. **/
+  public static class RecordDefault&lt;R&gt; extends FieldDefault&lt;R, RecordDefault&lt;R&gt;&gt; {
+    private RecordDefault(FieldBuilder&lt;R&gt; field) {
+<span class="nc" id="L2513">      super(field);</span>
+<span class="nc" id="L2514">    }</span>
+
+    /** Completes this field with the default value provided, cannot be null **/
+    public final FieldAssembler&lt;R&gt; recordDefault(GenericRecord defaultVal) {
+<span class="nc" id="L2518">      return super.usingDefault(defaultVal);</span>
+    }
+
+    @Override
+    final RecordDefault&lt;R&gt; self() {
+<span class="nc" id="L2523">      return this;</span>
+    }
+  }
+
+  public final static class GenericDefault&lt;R&gt; {
+    private final FieldBuilder&lt;R&gt; field;
+    private final Schema schema;
+
+<span class="nc" id="L2531">    private GenericDefault(FieldBuilder&lt;R&gt; field, Schema schema) {</span>
+<span class="nc" id="L2532">      this.field = field;</span>
+<span class="nc" id="L2533">      this.schema = schema;</span>
+<span class="nc" id="L2534">    }</span>
+
+    /** Do not use a default value for this field. **/
+    public FieldAssembler&lt;R&gt; noDefault() {
+<span class="nc" id="L2538">      return field.completeField(schema);</span>
+    }
+
+    /**
+     * Completes this field with the default value provided. The value must conform
+     * to the schema of the field.
+     **/
+    public FieldAssembler&lt;R&gt; withDefault(Object defaultVal) {
+<span class="nc" id="L2546">      return field.completeField(schema, defaultVal);</span>
+    }
+  }
+
+  /**
+   * Completion&lt;R&gt; is for internal builder use, all subclasses are private.
+   *
+   * Completion is an object that takes a Schema and returns some result.
+   */
+  private abstract static class Completion&lt;R&gt; {
+    abstract R complete(Schema schema);
+  }
+
+<span class="nc" id="L2559">  private static class SchemaCompletion extends Completion&lt;Schema&gt; {</span>
+    @Override
+    protected Schema complete(Schema schema) {
+<span class="nc" id="L2562">      return schema;</span>
+    }
+  }
+
+<span class="nc" id="L2566">  private static final Schema NULL_SCHEMA = Schema.create(Schema.Type.NULL);</span>
+
+  private static class NullableCompletion&lt;R&gt; extends Completion&lt;R&gt; {
+    private final Completion&lt;R&gt; context;
+
+<span class="nc" id="L2571">    private NullableCompletion(Completion&lt;R&gt; context) {</span>
+<span class="nc" id="L2572">      this.context = context;</span>
+<span class="nc" id="L2573">    }</span>
+
+    @Override
+    protected R complete(Schema schema) {
+      // wrap the schema as a union of the schema and null
+<span class="nc" id="L2578">      Schema nullable = Schema.createUnion(Arrays.asList(schema, NULL_SCHEMA));</span>
+<span class="nc" id="L2579">      return context.complete(nullable);</span>
+    }
+  }
+
+  private static class OptionalCompletion&lt;R&gt; extends Completion&lt;FieldAssembler&lt;R&gt;&gt; {
+    private final FieldBuilder&lt;R&gt; bldr;
+
+<span class="nc" id="L2586">    public OptionalCompletion(FieldBuilder&lt;R&gt; bldr) {</span>
+<span class="nc" id="L2587">      this.bldr = bldr;</span>
+<span class="nc" id="L2588">    }</span>
+
+    @Override
+    protected FieldAssembler&lt;R&gt; complete(Schema schema) {
+      // wrap the schema as a union of null and the schema
+<span class="nc" id="L2593">      Schema optional = Schema.createUnion(Arrays.asList(NULL_SCHEMA, schema));</span>
+<span class="nc" id="L2594">      return bldr.completeField(optional, (Object) null);</span>
+    }
+  }
+
+  private abstract static class CompletionWrapper {
+    abstract &lt;R&gt; Completion&lt;R&gt; wrap(Completion&lt;R&gt; completion);
+  }
+
+<span class="nc" id="L2602">  private static final class NullableCompletionWrapper extends CompletionWrapper {</span>
+    @Override
+    &lt;R&gt; Completion&lt;R&gt; wrap(Completion&lt;R&gt; completion) {
+<span class="nc" id="L2605">      return new NullableCompletion&lt;&gt;(completion);</span>
+    }
+  }
+
+  private static abstract class NestedCompletion&lt;R&gt; extends Completion&lt;R&gt; {
+    private final Completion&lt;R&gt; context;
+    private final PropBuilder&lt;?&gt; assembler;
+
+<span class="nc" id="L2613">    private NestedCompletion(PropBuilder&lt;?&gt; assembler, Completion&lt;R&gt; context) {</span>
+<span class="nc" id="L2614">      this.context = context;</span>
+<span class="nc" id="L2615">      this.assembler = assembler;</span>
+<span class="nc" id="L2616">    }</span>
+
+    @Override
+    protected final R complete(Schema schema) {
+<span class="nc" id="L2620">      Schema outer = outerSchema(schema);</span>
+<span class="nc" id="L2621">      assembler.addPropsTo(outer);</span>
+<span class="nc" id="L2622">      return context.complete(outer);</span>
+    }
+
+    protected abstract Schema outerSchema(Schema inner);
+  }
+
+  private static class MapCompletion&lt;R&gt; extends NestedCompletion&lt;R&gt; {
+    private MapCompletion(MapBuilder&lt;R&gt; assembler, Completion&lt;R&gt; context) {
+<span class="nc" id="L2630">      super(assembler, context);</span>
+<span class="nc" id="L2631">    }</span>
+
+    @Override
+    protected Schema outerSchema(Schema inner) {
+<span class="nc" id="L2635">      return Schema.createMap(inner);</span>
+    }
+  }
+
+  private static class ArrayCompletion&lt;R&gt; extends NestedCompletion&lt;R&gt; {
+    private ArrayCompletion(ArrayBuilder&lt;R&gt; assembler, Completion&lt;R&gt; context) {
+<span class="nc" id="L2641">      super(assembler, context);</span>
+<span class="nc" id="L2642">    }</span>
+
+    @Override
+    protected Schema outerSchema(Schema inner) {
+<span class="nc" id="L2646">      return Schema.createArray(inner);</span>
+    }
+  }
+
+  private static class UnionCompletion&lt;R&gt; extends Completion&lt;UnionAccumulator&lt;R&gt;&gt; {
+    private final Completion&lt;R&gt; context;
+    private final NameContext names;
+    private final List&lt;Schema&gt; schemas;
+
+<span class="nc" id="L2655">    private UnionCompletion(Completion&lt;R&gt; context, NameContext names, List&lt;Schema&gt; schemas) {</span>
+<span class="nc" id="L2656">      this.context = context;</span>
+<span class="nc" id="L2657">      this.names = names;</span>
+<span class="nc" id="L2658">      this.schemas = schemas;</span>
+<span class="nc" id="L2659">    }</span>
+
+    @Override
+    protected UnionAccumulator&lt;R&gt; complete(Schema schema) {
+<span class="nc" id="L2663">      List&lt;Schema&gt; updated = new ArrayList&lt;&gt;(this.schemas);</span>
+<span class="nc" id="L2664">      updated.add(schema);</span>
+<span class="nc" id="L2665">      return new UnionAccumulator&lt;&gt;(context, names, updated);</span>
+    }
+  }
+
+  /**
+   * Accumulates all of the types in a union. Add an additional type with
+   * {@link #and()}. Complete the union with {@link #endUnion()}
+   */
+  public static final class UnionAccumulator&lt;R&gt; {
+    private final Completion&lt;R&gt; context;
+    private final NameContext names;
+    private final List&lt;Schema&gt; schemas;
+
+<span class="nc" id="L2678">    private UnionAccumulator(Completion&lt;R&gt; context, NameContext names, List&lt;Schema&gt; schemas) {</span>
+<span class="nc" id="L2679">      this.context = context;</span>
+<span class="nc" id="L2680">      this.names = names;</span>
+<span class="nc" id="L2681">      this.schemas = schemas;</span>
+<span class="nc" id="L2682">    }</span>
+
+    /** Add an additional type to this union **/
+    public BaseTypeBuilder&lt;UnionAccumulator&lt;R&gt;&gt; and() {
+<span class="nc" id="L2686">      return new UnionBuilder&lt;&gt;(context, names, schemas);</span>
+    }
+
+    /** Complete this union **/
+    public R endUnion() {
+<span class="nc" id="L2691">      Schema schema = Schema.createUnion(schemas);</span>
+<span class="nc" id="L2692">      return context.complete(schema);</span>
+    }
+  }
+
+  // create default value JsonNodes from objects
+  private static JsonNode toJsonNode(Object o) {
+    try {
+      String s;
+<span class="nc bnc" id="L2700" title="All 2 branches missed.">      if (o instanceof ByteBuffer) {</span>
+        // special case since GenericData.toString() is incorrect for bytes
+        // note that this does not handle the case of a default value with nested bytes
+<span class="nc" id="L2703">        ByteBuffer bytes = ((ByteBuffer) o);</span>
+<span class="nc" id="L2704">        bytes.mark();</span>
+<span class="nc" id="L2705">        byte[] data = new byte[bytes.remaining()];</span>
+<span class="nc" id="L2706">        bytes.get(data);</span>
+<span class="nc" id="L2707">        bytes.reset(); // put the buffer back the way we got it</span>
+<span class="nc" id="L2708">        s = new String(data, StandardCharsets.ISO_8859_1);</span>
+<span class="nc" id="L2709">        char[] quoted = JsonStringEncoder.getInstance().quoteAsString(s);</span>
+<span class="nc" id="L2710">        s = &quot;\&quot;&quot; + new String(quoted) + &quot;\&quot;&quot;;</span>
+<span class="nc bnc" id="L2711" title="All 2 branches missed.">      } else if (o instanceof byte[]) {</span>
+<span class="nc" id="L2712">        s = new String((byte[]) o, StandardCharsets.ISO_8859_1);</span>
+<span class="nc" id="L2713">        char[] quoted = JsonStringEncoder.getInstance().quoteAsString(s);</span>
+<span class="nc" id="L2714">        s = '\&quot;' + new String(quoted) + '\&quot;';</span>
+<span class="nc" id="L2715">      } else {</span>
+<span class="nc" id="L2716">        s = GenericData.get().toString(o);</span>
+      }
+<span class="nc" id="L2718">      return new ObjectMapper().readTree(s);</span>
+<span class="nc" id="L2719">    } catch (IOException e) {</span>
+<span class="nc" id="L2720">      throw new SchemaBuilderException(e);</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>
