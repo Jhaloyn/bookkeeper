@@ -1,10 +1,10 @@
-AVRO
+AVRO (Modulo Maven: lang/java/avro)
 
 org.apache.avro.generic.GenericData 
 org.apache.avro.SchemaCompatibility 
 	
 
-BOOKKEEPER
+BOOKKEEPER (Modulo Maven: bookkeeper-server)
 
 org.apache.bookkeeper.bookie.BufferedChannel	
 org.apache.bookkeeper.proto.checksum.DigestManager
